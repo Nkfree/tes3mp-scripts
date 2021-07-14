@@ -1,6 +1,6 @@
--- kanaFurniture - Release 3.1 - For tes3mp v0.7-alpha
+-- kanaFurniture - Release 5 custom - For tes3mp v0.7-alpha
 -- REQUIRES: decorateHelp (https://github.com/Atkana/tes3mp-scripts/blob/master/0.7/decorateHelp.lua)
--- Purchase and place an assortment of furniture
+-- Highlights selected object and adds minor tweaks
 
 -- NOTE FOR SCRIPTS: pname requires the name to be in all LOWERCASE
 
@@ -21,6 +21,11 @@ config.InventoryGUI = 31365
 config.ViewGUI = 31366
 config.InventoryOptionsGUI = 31367
 config.ViewOptionsGUI = 31368
+
+config.HighlightColorGUI = 31369
+
+--Default highlight index, see highlightSpellIds
+config.defaultHighlightIndex = 4
 
 ------------
 --Indexed table of all available furniture. refIds should be in all lowercase
@@ -279,6 +284,32 @@ local playerInventoryChoice = {}
 local playerViewOptions = {} -- [pname = [index = [refIndex = x, refId = y] ]
 local playerViewChoice = {}
 
+local highlightColors = {
+	"White",
+	"Ice Blue",
+	"Yellow",
+	"Orange",
+	"Purple",
+	"Violet"
+}
+--Sounds to be cancelled
+local highlightSoundIds = {
+	alteration = '"alteration cast"', 
+	conjuration = '"conjuration cast"', 
+	restoration = '"restoration cast"'
+}
+--Spells to be casted
+local highlightSpellIds = {
+	{id = '"frost shield"', soundId = highlightSoundIds.alteration},
+	{id = '"shield of the armiger"', soundId = highlightSoundIds.restoration},
+	{id = '"bound shield"', soundId = highlightSoundIds.conjuration},
+	{id = '"fire shield"', soundId = highlightSoundIds.alteration},
+	{id = "shield", soundId = highlightSoundIds.alteration},
+	{id = '"shock shield"', soundId = highlightSoundIds.alteration},
+}
+local highlightTimers = {}
+
+
 -- ===========
 --  DATA ACCESS
 -- ===========
@@ -305,7 +336,7 @@ local function addPlaced(refIndex, cell, pname, refId, save)
 	placed[cell][refIndex] = {owner = pname, refId = refId}
 	
 	if save then
-		WorldInstance:Save()
+		WorldInstance:QuicksaveToDrive()
 	end
 end
 
@@ -315,7 +346,7 @@ local function removePlaced(refIndex, cell, save)
 	placed[cell][refIndex] = nil
 	
 	if save then
-		WorldInstance:Save()
+		WorldInstance:QuicksaveToDrive()
 	end
 end
 
@@ -344,7 +375,7 @@ local function addFurnitureItem(pname, refId, count, save)
 	end
 	
 	if save then
-		WorldInstance:Save()
+		WorldInstance:QuicksaveToDrive()
 	end
 end
 
@@ -355,7 +386,7 @@ Methods.OnServerPostInit = function()
 		WorldInstance.data.customVariables.kanaFurniture.placed = {}
 		WorldInstance.data.customVariables.kanaFurniture.permissions = {}
 		WorldInstance.data.customVariables.kanaFurniture.inventories = {}
-		WorldInstance:Save()
+		WorldInstance:QuicksaveToDrive()
 	end
 	
 	--Slight Hack for updating pnames to their new values. In release 1, the script stored player names as their login names, in release 2 it stores them as their all lowercase names.
@@ -388,7 +419,84 @@ Methods.OnServerPostInit = function()
 	
 	WorldInstance.data.customVariables.kanaFurniture.inventories = newInventories
 	
-	WorldInstance:Save()
+	WorldInstance:QuicksaveToDrive()
+end
+
+-- ===========
+--  OBJECT HIGHLIGHTING
+-- ===========
+
+function Methods.OnPlayerAuthentifiedHandler(pid)
+	local worldCvars = WorldInstance.data.customVariables
+	local shouldSave = false
+	
+	if worldCvars.kanaFurniture.highlightChoices == nil then
+		worldCvars.kanaFurniture.highlightChoices = {}
+		shouldSave = true
+	end
+	
+	if worldCvars.kanaFurniture.highlightChoices[pid] == nil then
+		worldCvars.kanaFurniture.highlightChoices[pid] = highlightSpellIds[config.defaultHighlightIndex]
+		shouldSave = true
+	end
+	
+	if shouldSave then
+		WorldInstance:QuicksaveToDrive()
+	end
+end
+
+local function createHighlightTimer(pid, cellDescription, uniqueIndex)
+	highlightTimers[pid] = tes3mp.CreateTimerEx("HighlightObject", 0, "iss", pid, cellDescription, uniqueIndex)
+	
+	return highlightTimers[pid]
+end
+
+local function destroyTimer(pid)
+	if highlightTimers[pid] then
+		tes3mp.StopTimer(highlightTimers[pid])
+		highlightTimers[pid] = nil
+	end
+end
+
+function HighlightObject(pid, cellDescription, uniqueIndex)
+	local choice = WorldInstance.data.customVariables.kanaFurniture.highlightChoices[pid]
+	logicHandler.RunConsoleCommandOnObject(pid, 'ExplodeSpell ' .. choice.id, cellDescription, uniqueIndex, false)
+	logicHandler.RunConsoleCommandOnObject(pid, 'StopSound ' .. choice.soundId, cellDescription, uniqueIndex, false)
+	
+	--tes3mp.SendMessage(pid, "Highlighting " .. uniqueIndex .. " with " .. string.gsub(config.spellId, '"+', "") .. "\n", false)
+	
+	tes3mp.RestartTimer(highlightTimers[pid], 500)
+end
+
+function Methods.OnStartHighlight(pid, cellDescription, uniqueIndex)
+	local timer = createHighlightTimer(pid, cellDescription, uniqueIndex)
+	tes3mp.StartTimer(timer)
+end
+
+function Methods.OnStopHighlight(pid)
+	destroyTimer(pid)
+end
+
+function Methods.showHighlightColorGUI(pid)
+	local message = "Proceed to choose your desired highlight color."
+	local buttons = ""
+	
+	for _, text in ipairs(highlightColors) do
+		buttons = buttons .. text .. ";"
+	end
+	
+	buttons = buttons .. "Close"
+	
+	tes3mp.CustomMessageBox(pid, config.HighlightColorGUI, message, buttons)
+end
+
+local function onMainHighlightColor(pid)
+	Methods.showHighlightColorGUI(pid)
+end
+
+local function onHighlightOptionSelect(pid, loc)
+	WorldInstance.data.customVariables.kanaFurniture.highlightChoices[pid] = highlightSpellIds[loc]
+	WorldInstance:QuicksaveToDrive()
 end
 
 -------------------------
@@ -441,7 +549,7 @@ local function addGold(pid, amount)
 		table.insert(Players[pid].data.inventory, {refId = "gold_001", count = amount, charge = -1})
 	end
 	
-	Players[pid]:Save()
+	Players[pid]:QuicksaveToDrive()
 	Players[pid]:LoadInventory()
 	Players[pid]:LoadEquipment()
 end
@@ -480,7 +588,7 @@ local function getPlayerFurnitureInventory(pid)
 	
 	if invlist[pname] == nil then
 		invlist[pname] = {}
-		WorldInstance:Save()
+		WorldInstance:QuicksaveToDrive()
 	end
 	
 	return invlist[pname]
@@ -534,7 +642,7 @@ local function removeFurniture(refIndex, cell)
 		logicHandler.DeleteObjectForEveryone(cell, refIndex)
 		
 		LoadedCells[cell]:DeleteObjectData(refIndex)
-		LoadedCells[cell]:Save()
+		LoadedCells[cell]:QuicksaveToDrive()
 		--Removing the object from the placed list will be done elsewhere
 	end
 	
@@ -603,7 +711,7 @@ Methods.AddPermission = function(pname, cell)
 	end
 	
 	perms[cell][pname] = true
-	WorldInstance:Save()
+	WorldInstance:QuicksaveToDrive()
 end
 
 Methods.RemovePermission = function(pname, cell)
@@ -615,14 +723,14 @@ Methods.RemovePermission = function(pname, cell)
 	
 	perms[cell][pname] = nil
 	
-	WorldInstance:Save()
+	WorldInstance:QuicksaveToDrive()
 end
 
 Methods.RemoveAllPermissions = function(cell)
 	local perms = getPermissionsTable()
 	
 	perms[cell] = nil
-	WorldInstance:Save()
+	WorldInstance:QuicksaveToDrive()
 end
 
 Methods.RemoveAllPlayerFurnitureInCell = function(pname, cell, returnToOwner)
@@ -638,7 +746,7 @@ Methods.RemoveAllPlayerFurnitureInCell = function(pname, cell, returnToOwner)
 			removePlaced(refIndex, cell, false)
 		end
 	end
-	WorldInstance:Save()
+	WorldInstance:QuicksaveToDrive()
 end
 
 Methods.RemoveAllFurnitureInCell = function(cell, returnToOwner)
@@ -652,7 +760,7 @@ Methods.RemoveAllFurnitureInCell = function(cell, returnToOwner)
 		removeFurniture(refIndex, cell)
 		removePlaced(refIndex, cell, false)
 	end
-	WorldInstance:Save()
+	WorldInstance:QuicksaveToDrive()
 end
 
 --Change the ownership of the specified furniture object (via refIndex) to another character's (playerToName). If playerCurrentName is false, the owner will be changed to the new one regardless of who owned it first.
@@ -664,7 +772,7 @@ Methods.TransferOwnership = function(refIndex, cell, playerCurrentName, playerTo
 	end
 	
 	if save then
-		WorldInstance:Save()
+		WorldInstance:QuicksaveToDrive()
 	end
 	
 	--Unset the current player's selected item, just in case they had that furniture as their selected item
@@ -688,7 +796,7 @@ Methods.TransferAllOwnership = function(cell, playerCurrentName, playerToName, s
 	end
 	
 	if save then
-		WorldInstance:Save()
+		WorldInstance:QuicksaveToDrive()
 	end
 	
 	--Unset the current player's selected item, just in case they had any of the furniture as their selected item
@@ -724,7 +832,7 @@ showViewOptionsGUI = function(pid, loc)
 	message = message .. "Item Name: " .. fdata.name .. " (RefIndex: " .. choice.refIndex .. "). Price: " .. fdata.price .. " (Sell price: " .. getSellValue(fdata.price) .. ")"
 	
 	playerViewChoice[getName(pid)] = choice
-	tes3mp.CustomMessageBox(pid, config.ViewOptionsGUI, message, "Select;Put Away;Sell;Close")
+	tes3mp.CustomMessageBox(pid, config.ViewOptionsGUI, message, "Select;Put Away;Sell;Back;Close")
 end
 
 local function onViewOptionSelect(pid)
@@ -734,7 +842,9 @@ local function onViewOptionSelect(pid)
 	
 	if getObject(choice.refIndex, cell) then
 		decorateHelp.SetSelectedObject(pid, choice.refIndex)
-		tes3mp.MessageBox(pid, -1, "Object selected, use /dh to move.")
+		-- Methods.OnStartHighlight(pid, cell, choice.refIndex)
+		decorateHelp.OnCommand(pid)
+		-- tes3mp.MessageBox(pid, -1, "Object selected, use /dh to move.")
 	else
 		tes3mp.MessageBox(pid, -1, "The object seems to have been removed.")
 	end
@@ -811,6 +921,10 @@ showViewGUI = function(pid)
 end
 
 local function onViewChoice(pid, loc)
+	local cell = tes3mp.GetCell(pid)
+	local choice = playerViewOptions[getName(pid)][loc]
+	Methods.OnStartHighlight(pid, cell, choice.refIndex)
+	
 	showViewOptionsGUI(pid, loc)
 end
 
@@ -922,7 +1036,7 @@ end
 -- MAIN
 showMainGUI = function(pid)
 	local message = "Welcome to the furniture menu. Use 'Buy' to purchase furniture for your furniture inventory, 'Inventory' to view the furniture items you own, 'View' to display a list of all the furniture that you own in the cell you're currently in.\n\nNote: The current version of tes3mp doesn't really like when lots of items are added to a cell, so try to restrain yourself from complete home renovations."
-	tes3mp.CustomMessageBox(pid, config.MainGUI, message, "Buy;Inventory;View;Close")
+	tes3mp.CustomMessageBox(pid, config.MainGUI, message, "Buy;Inventory;View;Highlight color;Exit")
 end
 
 local function onMainBuy(pid)
@@ -950,13 +1064,17 @@ Methods.OnGUIAction = function(pid, idGui, data)
 		elseif tonumber(data) == 2 then -- View
 			onMainView(pid)
 			return true
-		elseif tonumber(data) == 3 then -- Close
+		elseif tonumber(data) == 3 then -- Highlight color
+			onMainHighlightColor(pid)
+			return true
+		elseif tonumber(data) == 4 then -- Exit
 			--Do nothing
 			return true
 		end
 	elseif idGui == config.BuyGUI then -- Buy
 		if tonumber(data) == 0 or tonumber(data) == 18446744073709551615 then --Close/Nothing Selected
 			--Do nothing
+			showMainGUI(pid)
 			return true
 		else
 			onBuyChoice(pid, tonumber(data))
@@ -965,6 +1083,7 @@ Methods.OnGUIAction = function(pid, idGui, data)
 	elseif idGui == config.InventoryGUI then --Inventory main
 		if tonumber(data) == 0 or tonumber(data) == 18446744073709551615 then --Close/Nothing Selected
 			--Do nothing
+			showMainGUI(pid)
 			return true
 		else
 			onInventoryChoice(pid, tonumber(data))
@@ -979,11 +1098,13 @@ Methods.OnGUIAction = function(pid, idGui, data)
 			return true
 		else --Close
 			--Do nothing
+			showMainGUI(pid)
 			return true
 		end
 	elseif idGui == config.ViewGUI then --View
 		if tonumber(data) == 0 or tonumber(data) == 18446744073709551615 then --Close/Nothing Selected
 			--Do nothing
+			showMainGUI(pid)
 			return true
 		else
 			onViewChoice(pid, tonumber(data))
@@ -994,11 +1115,26 @@ Methods.OnGUIAction = function(pid, idGui, data)
 			onViewOptionSelect(pid)
 			return true
 		elseif tonumber(data) == 1 then --Put away
+			Methods.OnStopHighlight(pid)
 			onViewOptionPutAway(pid)
 		elseif tonumber(data) == 2 then --Sell
+			Methods.OnStopHighlight(pid)
 			onViewOptionSell(pid)
+		elseif tonumber(data) == 3 then
+			Methods.OnStopHighlight(pid)
+			onMainView(pid)
 		else --Close
 			--Do nothing
+			Methods.OnStopHighlight(pid)
+			showMainGUI(pid)
+			return true
+		end
+	elseif idGui == config.HighlightColorGUI then
+		if tonumber(data) >= 0 and tonumber(data) < 6 then --0: White; 1: Ice Blue; 2: Yellow; 3: Orange; 4: Purple; 5: Violet
+			onHighlightOptionSelect(pid, tonumber(data)+1) --Increment 1 to match the table indexes
+			return true
+		elseif tonumber(data) == 6 then --Close
+			Methods.OnCommand(pid)
 			return true
 		end
 	end
@@ -1006,6 +1142,10 @@ end
 
 Methods.OnCommand = function(pid)
 	showMainGUI(pid)
+end
+
+Methods.OnView = function(pid)
+	onMainView(pid)
 end
 
 customCommandHooks.registerCommand("furniture", Methods.OnCommand)
@@ -1019,6 +1159,10 @@ end)
 
 customEventHooks.registerHandler("OnServerPostInit", function(eventStatus)
 	Methods.OnServerPostInit()
+end)
+
+customEventHooks.registerHandler("OnPlayerAuthentified", function(eventStatus, pid)
+	Methods.OnPlayerAuthentifiedHandler(pid)
 end)
 
 return Methods
