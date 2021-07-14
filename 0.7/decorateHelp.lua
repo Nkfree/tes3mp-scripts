@@ -1,5 +1,5 @@
--- decorateHelp - Release 4 - For tes3mp v0.7.0-alpha
--- Alter positions of items using a GUI
+-- decorateHelp - Release 5 custom - For tes3mp v0.7.0-alpha
+-- To be used with kanaFurniture release 5 custom that features minor QoL changes and selected object highlighting
 
 --[[ INSTALLATION:
 1) Save this file as "decorateHelp.lua" in server/scripts/custom
@@ -221,7 +221,8 @@ Methods.OnGUIAction = function(pid, idGui, data)
 	if idGui == config.MainId then
 		if tonumber(data) == 0 then --View Furniture Emporium
 			playerCurrentMode[pname] = "Select Furniture"
-			kanaFurniture.OnCommand(pid)
+			kanaFurniture.OnStopHighlight(pid)
+			kanaFurniture.OnView(pid)
 			return true
 		elseif tonumber(data) == 1 then --Move North
 			playerCurrentMode[pname] = "Fine Tune North"
@@ -285,6 +286,7 @@ Methods.OnGUIAction = function(pid, idGui, data)
 			return true
 		elseif tonumber(data) == 16 then --Close
 			--Do nothing
+			kanaFurniture.OnStopHighlight(pid)
 			return true
 		end
 	elseif idGui == config.PromptId then
@@ -302,6 +304,14 @@ Methods.OnPlayerCellChange = function(pid)
 end
 
 Methods.OnCommand = function(pid)
+	local cell = tes3mp.GetCell(pid)
+	local pname = tes3mp.GetName(pid)
+	local refIndex = playerSelectedObject[pname]
+	
+	if getObject(refIndex, cell) then
+		kanaFurniture.OnStartHighlight(pid, cell, refIndex)
+	end
+	
 	showMainGUI(pid)
 end
 
