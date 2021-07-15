@@ -1,7 +1,8 @@
 -- kanaFurniture - Release 5 custom - For tes3mp v0.7-alpha
--- REQUIRES: decorateHelp (https://github.com/Atkana/tes3mp-scripts/blob/master/0.7/decorateHelp.lua)
+-- REQUIRES: decorateHelp (https://github.com/Nkfree/tes3mp-scripts/blob/master/0.7/decorateHelp.lua)
 -- Purchase and place an assortment of furniture
 -- Highlights selected object and adds minor tweaks
+-- Added option to align selected object with another
 
 -- NOTE FOR SCRIPTS: pname requires the name to be in all LOWERCASE
 
