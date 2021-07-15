@@ -1,5 +1,6 @@
 -- kanaFurniture - Release 5 custom - For tes3mp v0.7-alpha
 -- REQUIRES: decorateHelp (https://github.com/Atkana/tes3mp-scripts/blob/master/0.7/decorateHelp.lua)
+-- Purchase and place an assortment of furniture
 -- Highlights selected object and adds minor tweaks
 
 -- NOTE FOR SCRIPTS: pname requires the name to be in all LOWERCASE
@@ -282,7 +283,6 @@ local playerBuyOptions = {} --Used to store the lists of items each player is of
 local playerInventoryOptions = {} --
 local playerInventoryChoice = {}
 local playerViewOptions = {} -- [pname = [index = [refIndex = x, refId = y] ]
-local playerViewChoice = {}
 
 local highlightColors = {
 	"White",
@@ -430,6 +430,8 @@ function Methods.OnPlayerAuthentifiedHandler(pid)
 	local worldCvars = WorldInstance.data.customVariables
 	local shouldSave = false
 	
+	if highlightTimers[pid] == nil then highlightTimers[pid] = {} end
+	
 	if worldCvars.kanaFurniture.highlightChoices == nil then
 		worldCvars.kanaFurniture.highlightChoices = {}
 		shouldSave = true
@@ -445,27 +447,44 @@ function Methods.OnPlayerAuthentifiedHandler(pid)
 	end
 end
 
-local function createHighlightTimer(pid, cellDescription, uniqueIndex)
-	highlightTimers[pid] = tes3mp.CreateTimerEx("HighlightObject", 0, "iss", pid, cellDescription, uniqueIndex)
-	
-	return highlightTimers[pid]
+function Methods.OnPlayerDisconnectValidator(pid)
+	for uniqueIndex, _ in pairs(highlightTimers[pid]) do
+		Methods.OnStopHighlight(pid, uniqueIndex)
+	end
 end
 
-local function destroyTimer(pid)
-	if highlightTimers[pid] then
-		tes3mp.StopTimer(highlightTimers[pid])
-		highlightTimers[pid] = nil
+local function createHighlightTimer(pid, cellDescription, uniqueIndex)
+	highlightTimers[pid][uniqueIndex] = tes3mp.CreateTimerEx("HighlightObject", 0, "iss", pid, cellDescription, uniqueIndex)
+	
+	return highlightTimers[pid][uniqueIndex]
+end
+
+local function destroyTimer(pid, uniqueIndex)
+	if highlightTimers[pid][uniqueIndex] then
+		tes3mp.StopTimer(highlightTimers[pid][uniqueIndex])
+		highlightTimers[pid][uniqueIndex] = nil
 	end
 end
 
 function HighlightObject(pid, cellDescription, uniqueIndex)
 	local choice = WorldInstance.data.customVariables.kanaFurniture.highlightChoices[pid]
+
+	--Resolve different color for selected align object
+	if uniqueIndex == decorateHelp.GetSelectedAlignRefIndex(pid) then
+		for index, _ in ipairs(highlightColors) do --Find first different color and use that to highlight the align object
+			if highlightSpellIds[index] ~= choice then
+				choice = highlightSpellIds[index]
+				break
+			end 
+		end
+	end
+
 	logicHandler.RunConsoleCommandOnObject(pid, 'ExplodeSpell ' .. choice.id, cellDescription, uniqueIndex, false)
 	logicHandler.RunConsoleCommandOnObject(pid, 'StopSound ' .. choice.soundId, cellDescription, uniqueIndex, false)
 	
 	--tes3mp.SendMessage(pid, "Highlighting " .. uniqueIndex .. " with " .. string.gsub(config.spellId, '"+', "") .. "\n", false)
 	
-	tes3mp.RestartTimer(highlightTimers[pid], 500)
+	tes3mp.RestartTimer(highlightTimers[pid][uniqueIndex], 500)
 end
 
 function Methods.OnStartHighlight(pid, cellDescription, uniqueIndex)
@@ -473,8 +492,8 @@ function Methods.OnStartHighlight(pid, cellDescription, uniqueIndex)
 	tes3mp.StartTimer(timer)
 end
 
-function Methods.OnStopHighlight(pid)
-	destroyTimer(pid)
+function Methods.OnStopHighlight(pid, uniqueIndex)
+	destroyTimer(pid, uniqueIndex)
 end
 
 function Methods.showHighlightColorGUI(pid)
@@ -511,15 +530,15 @@ local function getName(pid)
 	return string.lower(Players[pid].accountName)
 end
 
-local function getObject(refIndex, cell)
+Methods.getObject = function(refIndex, cell)
 	if refIndex == nil then
 		return false
 	end
 	
-	if not LoadedCells[cell] then
+--[[ 	if not LoadedCells[cell] then
 		--TODO: Should ideally be temporary
 		logicHandler.LoadCell(cell)
-	end
+	end ]]
 
 	if LoadedCells[cell]:ContainsObject(refIndex)  then 
 		return LoadedCells[cell].data.objectData[refIndex]
@@ -826,25 +845,26 @@ end
 -- VIEW (OPTIONS)
 showViewOptionsGUI = function(pid, loc)
 	local message = ""
-	local choice = playerViewOptions[getName(pid)][loc]
-	local fdata = getFurnitureData(choice.refId)
+	local cell = tes3mp.GetCell(pid)
+	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
+	local selected = Methods.getObject(refIndex, cell)
+	local fdata = getFurnitureData(selected.refId) or nil
+
+	if not fdata then
+		return tes3mp.SendMessage(pid, "Furniture data for the selected object could not be retrieved.\n", false)
+	end
 	
-	message = message .. "Item Name: " .. fdata.name .. " (RefIndex: " .. choice.refIndex .. "). Price: " .. fdata.price .. " (Sell price: " .. getSellValue(fdata.price) .. ")"
+	message = message .. "Item Name: " .. fdata.name .. " (RefIndex: " .. refIndex .. "). Price: " .. fdata.price .. " (Sell price: " .. getSellValue(fdata.price) .. ")"
 	
-	playerViewChoice[getName(pid)] = choice
-	tes3mp.CustomMessageBox(pid, config.ViewOptionsGUI, message, "Select;Put Away;Sell;Back;Close")
+	tes3mp.CustomMessageBox(pid, config.ViewOptionsGUI, message, "Decorate helper;Put Away;Sell;Back;Close")
 end
 
-local function onViewOptionSelect(pid)
-	local pname = getName(pid)
-	local choice = playerViewChoice[pname]
+local function onViewOptionDecorate(pid)
+	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
 	local cell = tes3mp.GetCell(pid)
 	
-	if getObject(choice.refIndex, cell) then
-		decorateHelp.SetSelectedObject(pid, choice.refIndex)
-		-- Methods.OnStartHighlight(pid, cell, choice.refIndex)
+	if Methods.getObject(refIndex, cell) then
 		decorateHelp.OnCommand(pid)
-		-- tes3mp.MessageBox(pid, -1, "Object selected, use /dh to move.")
 	else
 		tes3mp.MessageBox(pid, -1, "The object seems to have been removed.")
 	end
@@ -852,34 +872,35 @@ end
 
 local function onViewOptionPutAway(pid)
 	local pname = getName(pid)
-	local choice = playerViewChoice[pname]
 	local cell = tes3mp.GetCell(pid)
+	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
+	local selected = Methods.getObject(refIndex, cell)
 	
-	if getObject(choice.refIndex, cell) then
-		removeFurniture(choice.refIndex, cell)
-		removePlaced(choice.refIndex, cell, true)
+	if Methods.getObject(refIndex, cell) then
+		removeFurniture(refIndex, cell)
+		removePlaced(refIndex, cell, true)
 		
-		addFurnitureItem(pname, choice.refId, 1, true)
-		tes3mp.MessageBox(pid, -1, getFurnitureData(choice.refId).name .. " has been added to your furniture inventory.")
+		addFurnitureItem(pname, selected.refId, 1, true)
+		tes3mp.MessageBox(pid, -1, getFurnitureData(selected.refId).name .. " has been added to your furniture inventory.")
 	else
 		tes3mp.MessageBox(pid, -1, "The object seems to have been removed.")
 	end
 end
 
 local function onViewOptionSell(pid)
-	local pname = getName(pid)
-	local choice = playerViewChoice[pname]
 	local cell = tes3mp.GetCell(pid)
-	
-	if getObject(choice.refIndex, cell) then
-		local saleGold = getSellValue(getFurnitureData(choice.refId).price)
+	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
+	local selected = Methods.getObject(refIndex, cell)
+
+	if Methods.getObject(refIndex, cell) then
+		local saleGold = getSellValue(getFurnitureData(selected.refId).price)
 		
 		--Add gold to inventory
 		addGold(pid, saleGold)
 		
 		--Remove the item from the cell
-		removeFurniture(choice.refIndex, cell)
-		removePlaced(choice.refIndex, cell, true)
+		removeFurniture(refIndex, cell)
+		removePlaced(refIndex, cell, true)
 		
 		--Inform the player
 		tes3mp.MessageBox(pid, -1, saleGold .. " Gold has been added to your inventory and the furniture has been removed from the cell.")
@@ -900,7 +921,7 @@ showViewGUI = function(pid)
 	if options and #options > 0 then
 		for i = 1, #options do
 			--Make sure the object still exists, and get its data
-			local object = getObject(options[i], cell)
+			local object = Methods.getObject(options[i], cell)
 			
 			if object then
 				local furnData = getFurnitureData(object.refId)
@@ -923,7 +944,8 @@ end
 local function onViewChoice(pid, loc)
 	local cell = tes3mp.GetCell(pid)
 	local choice = playerViewOptions[getName(pid)][loc]
-	Methods.OnStartHighlight(pid, cell, choice.refIndex)
+	decorateHelp.SetSelectedObject(pid, choice.refIndex)
+	Methods.OnStartHighlight(pid, cell, decorateHelp.GetSelectedRefIndex(pid))
 	
 	showViewOptionsGUI(pid, loc)
 end
@@ -1107,31 +1129,35 @@ Methods.OnGUIAction = function(pid, idGui, data)
 			showMainGUI(pid)
 			return true
 		else
+			Methods.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			onViewChoice(pid, tonumber(data))
 			return true
 		end
 	elseif idGui == config.ViewOptionsGUI then -- View Options
 		if tonumber(data) == 0 then --Select
-			onViewOptionSelect(pid)
+			onViewOptionDecorate(pid)
 			return true
 		elseif tonumber(data) == 1 then --Put away
-			Methods.OnStopHighlight(pid)
+			Methods.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			onViewOptionPutAway(pid)
+			return true
 		elseif tonumber(data) == 2 then --Sell
-			Methods.OnStopHighlight(pid)
+			Methods.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			onViewOptionSell(pid)
-		elseif tonumber(data) == 3 then
-			Methods.OnStopHighlight(pid)
+			return true
+		elseif tonumber(data) == 3 then --Back
+			Methods.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			onMainView(pid)
+			return true
 		else --Close
 			--Do nothing
-			Methods.OnStopHighlight(pid)
+			Methods.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			showMainGUI(pid)
 			return true
 		end
 	elseif idGui == config.HighlightColorGUI then
 		if tonumber(data) >= 0 and tonumber(data) < 6 then --0: White; 1: Ice Blue; 2: Yellow; 3: Orange; 4: Purple; 5: Violet
-			onHighlightOptionSelect(pid, tonumber(data)+1) --Increment 1 to match the table indexes
+			onHighlightOptionSelect(pid, tonumber(data)+1) --Add 1 to match the table indexes
 			return true
 		elseif tonumber(data) == 6 then --Close
 			Methods.OnCommand(pid)
@@ -1146,6 +1172,14 @@ end
 
 Methods.OnView = function(pid)
 	onMainView(pid)
+end
+
+Methods.PlacedInCell = function(pname, cell)
+	return getPlayerPlacedInCell(pname, cell)
+end
+
+Methods.FurnitureData = function(refIndex)
+	return getFurnitureData(refIndex)
 end
 
 customCommandHooks.registerCommand("furniture", Methods.OnCommand)
@@ -1163,6 +1197,10 @@ end)
 
 customEventHooks.registerHandler("OnPlayerAuthentified", function(eventStatus, pid)
 	Methods.OnPlayerAuthentifiedHandler(pid)
+end)
+
+customEventHooks.registerValidator("OnPlayerDisconnect", function(eventStatus, pid)
+	Methods.OnPlayerDisconnectValidator(pid)
 end)
 
 return Methods
