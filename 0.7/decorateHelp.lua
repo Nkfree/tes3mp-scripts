@@ -314,7 +314,7 @@ Methods.OnObjectPlace = function(pid, cellDescription)
 	tes3mp.ReadLastEvent()
 	
 	--Get the refIndex of the first item in the object place packet (in theory, there should only by one)
-	local refIndex = tes3mp.kanaFurniture.getObjectRefNumIndex(0) .. "-" .. tes3mp.kanaFurniture.getObjectMpNum(0)
+	local refIndex = tes3mp.getObjectRefNumIndex(0) .. "-" .. tes3mp.getObjectMpNum(0)
 	
 	--Record that item as the last one the player interacted with in this cell
 	setSelectedObject(pid, refIndex)
