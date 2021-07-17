@@ -455,7 +455,9 @@ function Methods.OnPlayerDisconnectValidator(pid)
 end
 
 local function createHighlightTimer(pid, cellDescription, uniqueIndex)
-	highlightTimers[pid][uniqueIndex] = tes3mp.CreateTimerEx("HighlightObject", 0, "iss", pid, cellDescription, uniqueIndex)
+	if not highlightTimers[pid][uniqueIndex] then
+		highlightTimers[pid][uniqueIndex] = tes3mp.CreateTimerEx("HighlightObject", 0, "iss", pid, cellDescription, uniqueIndex)
+	end
 	
 	return highlightTimers[pid][uniqueIndex]
 end
@@ -1053,7 +1055,7 @@ local function onBuyChoice(pid, loc)
 	addFurnitureItem(getName(pid), choice.refId, 1, true)
 	
 	tes3mp.MessageBox(pid, -1, "A " .. choice.name .. " has been added to your furniture inventory.")
-	return true
+	return showInventoryGUI(pid)
 end
 
 -- MAIN
