@@ -2,6 +2,7 @@
 -- To be used with kanaFurniture release 5 custom that features minor QoL changes and selected object highlighting
 -- Alter positions of items using a GUI
 -- Added option to align selected object with another
+-- Objects can be moved in realtime in different modes that are operated via changes in draw states
 
 --[[ INSTALLATION:
 1) Save this file as "decorateHelp.lua" in server/scripts/custom
@@ -11,13 +12,16 @@
 ------
 local config = {}
 
-config.MainId = 31359
-config.PromptId = 31360
+config.MainId = 31358
+config.PromptId = 31359
 config.ScaleMin = 0.5
 config.ScaleMax = 2.0
 
-config.AlignId = 31361
-config.ChooseAlignObjectId = 31362
+config.AlignId = 31360
+config.ChooseAlignObjectId = 31361
+config.PrintSubModeId = 31362
+
+config.HeightStanding = 125
 
 ------
 
@@ -26,13 +30,27 @@ local Methods = {}
 tableHelper = require("tableHelper")
 
 --
+local subModes = {"Move", "Rotate"}
+local subSubModes = {
+	{"Free", "X", "Y", "Z"},
+	{"Z", "X", "Y", "Free (X and Z)"}
+}
+
 Methods.playerSelectedObject = {}
 local playerCurrentMode = {}
+local playerCurrentSubMode = {}
+local playerCurrentSubSubMode = {}
+local playerLastDrawState = {}
 
 local playerAlignOptions = {}
 Methods.playerSelectedAlignObject = {}
 
 local playerActionHistory = {}
+
+local playerRealTimeTimers = {}
+local playerRealTimeSneakTimestamps = {}
+local playerObjectDistances = {}
+local playerRealTimeFixedStats = {}
 --
 
 local function resendPlaceToAll(refIndex, cell)
@@ -104,6 +122,10 @@ end
 --Align functions
 local function OnPlayerAuthentifiedHandler(pid)
 	if not playerActionHistory[pid] then playerActionHistory[pid] = {} end
+	playerCurrentSubMode[pid] = 1
+	playerCurrentSubSubMode[pid] = 1
+	playerLastDrawState[pid] = tes3mp.GetDrawState(pid)
+	playerRealTimeFixedStats[pid] = {posX = false, posY = false, posZ = false, rotX = true, rotY = true, rotZ = true}
 end
 
 local function chooseAlignObjectGUI(pid)
@@ -206,6 +228,305 @@ end
 
 -----------
 
+--Realtime Move functions
+
+local function getObjectNewLocationFloored(pid)
+	local rotAngleZ = tes3mp.GetRotZ(pid)
+	local rotAngleX = tes3mp.GetRotX(pid)
+	
+	-- disallow object to get under the player
+	if rotAngleX > 1.13 then rotAngleX = 1.13 end
+	
+	local x = math.floor(tes3mp.GetPosX(pid) + 0.5)
+	local y = math.floor(tes3mp.GetPosY(pid) + 0.5)
+	local z = math.floor(tes3mp.GetPosZ(pid) + 0.5)
+
+	local distance = math.max(playerObjectDistances[pid], 200)
+	
+	local location = {
+		posX = x + math.floor(distance * math.sin(rotAngleZ) * math.cos(rotAngleX) + 0.5),
+		posY = y + math.floor(distance * math.cos(rotAngleZ) * math.cos(rotAngleX) + 0.5),
+		posZ = (z + config.HeightStanding) - math.floor(distance * math.sin(rotAngleX) + 0.5),
+		rotX = rotAngleZ,
+		rotY = rotAngleZ,
+		rotZ = rotAngleZ
+	}
+
+	return location
+end
+
+local function resetSubMode(pid)
+	playerCurrentSubMode[pid] = 1
+end
+
+local function resetSubSubMode(pid)
+	playerCurrentSubSubMode[pid] = 1
+end
+
+local function incrementSubMode(pid)
+	if ( playerCurrentSubMode[pid] + 1 ) <= #subModes then
+		playerCurrentSubMode[pid] = playerCurrentSubMode[pid] + 1
+	else
+		resetSubMode(pid)
+	end
+end
+
+local function incrementSubSubMode(pid)
+	if ( playerCurrentSubSubMode[pid] + 1 ) <= #subSubModes[playerCurrentSubMode[pid]] then
+		playerCurrentSubSubMode[pid] = playerCurrentSubSubMode[pid] + 1
+	else
+		resetSubSubMode(pid)
+	end
+end
+
+local function printSubModeInfo(pid)
+	local sub = subModes[playerCurrentSubMode[pid]]
+	local subsub = subSubModes[playerCurrentSubMode[pid]][playerCurrentSubSubMode[pid]]
+	local message = "\nCurrent mode: " .. sub .. "\n<< Press 'Draw Weapon' key >>\n"
+	message = message .. "\nCurrent submode: " .. subsub .. "\n<< Press 'Draw Magic' key >>\n"
+	
+	if sub == "Move" then
+		if subsub == "X" then
+			message = message .. "\nFixed: " .. tostring(playerRealTimeFixedStats[pid].posX)
+		elseif subsub == "Y" then
+			message = message .. "\nFixed: " .. tostring(playerRealTimeFixedStats[pid].posY)
+		elseif subsub == "Z" then
+			message = message .. "\nFixed: " .. tostring(playerRealTimeFixedStats[pid].posZ)
+		end
+	elseif sub == "Rotate" then
+		if subsub == "Z" then
+			message = message .. "\nFixed: " .. tostring(playerRealTimeFixedStats[pid].rotZ)
+		elseif subsub == "X" then
+			message = message .. "\nFixed: " .. tostring(playerRealTimeFixedStats[pid].rotX)
+		elseif subsub == "Y" then
+			message = message .. "\nFixed: " .. tostring(playerRealTimeFixedStats[pid].rotY)
+		end
+	end
+
+	if subsub ~= "Free" and subsub ~= "Free (X and Z)" then
+		message = message .. "\nPress 'Sneak' key to toggle fix\n"
+		message = message .. "\nHold 'Sneak' key to place\n"
+	end
+
+	return tes3mp.MessageBox(pid, config.PrintSubModeId, message)
+end
+
+local function resetFixedStats(pid)
+	playerRealTimeFixedStats[pid].posX = false
+	playerRealTimeFixedStats[pid].posY = false
+	playerRealTimeFixedStats[pid].posZ = false
+	playerRealTimeFixedStats[pid].rotZ = false
+	playerRealTimeFixedStats[pid].rotX = false
+end
+
+local function toggleFixedStats(pid)
+	local subMode = subModes[playerCurrentSubMode[pid]]
+	local subSubMode = subSubModes[playerCurrentSubMode[pid]][playerCurrentSubSubMode[pid]]
+
+	if subMode == "Move" then
+		if subSubMode == "X" then
+			if playerRealTimeFixedStats[pid].posX then
+				playerRealTimeFixedStats[pid].posX = false
+			else
+				playerRealTimeFixedStats[pid].posX = true
+				-- incrementSubSubMode(pid)
+			end
+		elseif subSubMode == "Y" then
+			if playerRealTimeFixedStats[pid].posY then
+				playerRealTimeFixedStats[pid].posY = false
+			else
+				playerRealTimeFixedStats[pid].posY = true
+				-- incrementSubSubMode(pid)
+			end
+		elseif subSubMode == "Z" then
+			if playerRealTimeFixedStats[pid].posZ then
+				playerRealTimeFixedStats[pid].posZ = false
+			else
+				playerRealTimeFixedStats[pid].posZ = true
+				-- incrementSubSubMode(pid)
+			end
+		end
+	else
+		if subSubMode == "Z" then
+			if playerRealTimeFixedStats[pid].rotZ then
+				playerRealTimeFixedStats[pid].rotZ = false
+			else
+				playerRealTimeFixedStats[pid].rotZ = true
+				-- incrementSubSubMode(pid)
+			end
+		elseif subSubMode == "X" then
+			if playerRealTimeFixedStats[pid].rotX then
+				playerRealTimeFixedStats[pid].rotX = false
+			else
+				playerRealTimeFixedStats[pid].rotX = true
+				-- incrementSubSubMode(pid)
+			end
+		elseif subSubMode == "Y" then
+			if playerRealTimeFixedStats[pid].rotY then
+				playerRealTimeFixedStats[pid].rotY = false
+			else
+				playerRealTimeFixedStats[pid].rotY = true
+				-- incrementSubSubMode(pid)
+			end
+		end
+	end
+
+	printSubModeInfo(pid)
+end
+
+local function beginMove(pid, uniqueIndex)
+	local cell = tes3mp.GetCell(pid)
+	local object = kanaFurniture.getObject(Methods.GetSelectedRefIndex(pid), cell)
+	
+	if object then
+		printSubModeInfo(pid)
+
+		local objX = math.floor(object.location.posX + 0.5)
+		local objY = math.floor(object.location.posY + 0.5)
+		local plX = math.floor(tes3mp.GetPosX(pid) + 0.5)
+		local plY = math.floor(tes3mp.GetPosY(pid) + 0.5)
+
+		local offsetX = math.abs(objX - plX)
+		local offsetY = math.abs(objY - plY)
+
+		playerObjectDistances[pid] = math.max(offsetX, offsetY)
+		playerRealTimeTimers[pid] = tes3mp.CreateTimerEx("RT_UpdateObjectLocation", time.seconds(0.01), "is", pid, uniqueIndex)
+		tes3mp.StartTimer(playerRealTimeTimers[pid])
+	else
+		return
+	end
+end
+
+local function quitMove(pid)
+	tes3mp.StopTimer(playerRealTimeTimers[pid])
+	playerRealTimeTimers[pid] = nil
+	playerObjectDistances[pid] = nil
+	resetSubMode(pid)
+	resetSubSubMode(pid)
+	kanaFurniture.OnStopHighlight(pid, Methods.GetSelectedRefIndex(pid))
+	return -- Methods.OnCommand(pid)
+end
+
+function RT_UpdateObjectLocation(pid, uniqueIndex)
+	local cell = tes3mp.GetCell(pid)
+
+	local object = kanaFurniture.getObject(Methods.GetSelectedRefIndex(pid), cell)
+
+	local newLocation = getObjectNewLocationFloored(pid, object)
+
+	if tes3mp.GetDrawState(pid) ~= playerLastDrawState[pid] then
+		local previousDrawState = playerLastDrawState[pid]
+		playerLastDrawState[pid] = tes3mp.GetDrawState(pid)
+
+		if playerLastDrawState[pid] == 1 then
+			incrementSubMode(pid)
+			resetSubSubMode(pid)
+		elseif playerLastDrawState[pid] == 2 then
+			incrementSubSubMode(pid)
+		elseif previousDrawState == 1 and playerLastDrawState[pid] == 0 then
+			incrementSubMode(pid)
+			resetSubSubMode(pid)
+		elseif previousDrawState == 2 and playerLastDrawState[pid] == 0 then
+			incrementSubSubMode(pid)
+		end
+
+		printSubModeInfo(pid)
+	end
+
+	--Either fix position/rotation or place the object based on duration of sneakstate
+	if tes3mp.GetSneakState(pid) then
+
+		--Mark the time of player entering sneak state
+		if not playerRealTimeSneakTimestamps[pid] then playerRealTimeSneakTimestamps[pid] = os.time() end
+
+		if playerRealTimeSneakTimestamps[pid] + 1.5 <= os.time() then
+			playerRealTimeSneakTimestamps[pid] = nil
+			resetFixedStats(pid)
+			return quitMove(pid)
+		end
+	else
+		if playerRealTimeSneakTimestamps[pid] and playerRealTimeSneakTimestamps[pid] + 0.1 >= os.time() then
+			toggleFixedStats(pid)
+		end
+		playerRealTimeSneakTimestamps[pid] = nil
+	end
+
+	local objX = math.floor(object.location.posX + 0.5)
+	local objY = math.floor(object.location.posY + 0.5)
+	local objZ = math.floor(object.location.posZ + 0.5)
+
+	--Do not update object that didn't move by a single unit
+	if objX == newLocation.posX and objY == newLocation.posY and objZ == newLocation.posZ then
+		return tes3mp.RestartTimer(playerRealTimeTimers[pid], time.seconds(0.01))
+	end
+
+	local subMode = subModes[playerCurrentSubMode[pid]]
+	local subSubMode = subSubModes[playerCurrentSubMode[pid]][playerCurrentSubSubMode[pid]]
+
+	if subMode == "Move" then
+		if subSubMode == "X" then
+			if not playerRealTimeFixedStats[pid].posX then
+				object.location.posX = newLocation.posX
+			end
+		elseif subSubMode == "Y" then
+			if not playerRealTimeFixedStats[pid].posY then
+				object.location.posY = newLocation.posY
+			end
+		elseif subSubMode == "Z" then
+			if not playerRealTimeFixedStats[pid].posZ  then
+				object.location.posZ = newLocation.posZ
+			end
+		else
+			if not playerRealTimeFixedStats[pid].posX then
+				object.location.posX = newLocation.posX
+			end
+
+			if not playerRealTimeFixedStats[pid].posY then
+				object.location.posY = newLocation.posY
+			end
+
+			if not playerRealTimeFixedStats[pid].posZ then
+				object.location.posZ = newLocation.posZ
+			end
+
+			if not playerRealTimeFixedStats[pid].rotZ then
+				object.location.rotZ = newLocation.rotZ
+			end
+		end
+	elseif subMode == "Rotate" then
+		if subSubMode == "Z" then
+			if not playerRealTimeFixedStats[pid].rotZ then
+				object.location.rotZ = newLocation.rotZ * 10
+			end
+		elseif subSubMode == "X" then
+			if not playerRealTimeFixedStats[pid].rotX then
+				object.location.rotX = newLocation.rotX * 10
+			end
+		elseif subSubMode == "Y" then
+			if not playerRealTimeFixedStats[pid].rotY then
+				object.location.rotY = newLocation.rotY * 10
+			end
+		else
+			if not playerRealTimeFixedStats[pid].rotZ then
+				object.location.rotZ = newLocation.rotZ * 10
+			end
+
+			if not playerRealTimeFixedStats[pid].rotX then
+				object.location.rotX = newLocation.rotX * 10
+			end
+		end
+	end
+
+--[[ 	object.location.posX = newLocation.posX
+	object.location.posY = newLocation.posY
+	object.location.posZ = newLocation.posZ
+	object.location.rotZ = newLocation.rotZ ]]
+
+	resendPlaceToAll(uniqueIndex, cell)
+	return tes3mp.RestartTimer(playerRealTimeTimers[pid], time.seconds(0.01))
+end
+-----------
+
 local function showPromptGUI(pid)
 	local message = "[" .. playerCurrentMode[tes3mp.GetName(pid)] .. "] - Enter a number."
 	local pname = tes3mp.GetName(pid)
@@ -279,6 +600,8 @@ local function onEnterPrompt(pid, data)
 		end
 	elseif mode == "Align" then
 		return chooseAlignObjectGUI(pid)
+	elseif mode == "RtMove" then
+		return beginMove(pid, Methods.playerSelectedObject[pname])
 	elseif mode == "return" then
 		object.location.posY = object.location.posY
 		return
@@ -298,7 +621,7 @@ local function showMainGUI(pid)
 	end
 	
 	local message = "Select an option. Your current item is: " .. currentItem
-	tes3mp.CustomMessageBox(pid, config.MainId, message, "Select Furniture;Fine Tune North;Fine Tune East;Fine Tune Height;Rotate X;Rotate Y;Rotate Z;Raise;Lower;Move East;Move West;Move North;Move South;Scale Up;Scale Down;Fine Tune Scale;Align with;Exit")
+	tes3mp.CustomMessageBox(pid, config.MainId, message, "Select Furniture;Fine Tune North;Fine Tune East;Fine Tune Height;Rotate X;Rotate Y;Rotate Z;Raise;Lower;Move East;Move West;Move North;Move South;Scale Up;Scale Down;Fine Tune Scale;Align with;Realtime Move;Exit")
 end
 
 local function setSelectedObject(pid, refIndex)
@@ -390,15 +713,24 @@ Methods.OnGUIAction = function(pid, idGui, data)
 			showPromptGUI(pid)
 			return true
 		elseif tonumber(data) == 16 then -- Align
-			--Exit if no object selected prior to this menu
+			--Return to main menu if no object selected prior to this menu
 			if not Methods.GetSelectedRefIndex(pid) then
 				showMainGUI(pid)
 			else
 				playerCurrentMode[pname] = "Align"
 				onEnterPrompt(pid, 0)
 			end
-			return true 
-		elseif tonumber(data) == 17 then --Exit
+			return true
+		elseif tonumber(data) == 17 then -- Realtime Move
+			--Return to main menu if no object selected prior to this menu
+			if not Methods.GetSelectedRefIndex(pid) then
+				showMainGUI(pid)
+			else
+				playerCurrentMode[pname] = "RtMove"
+				onEnterPrompt(pid, 0)
+			end
+			return true
+		elseif tonumber(data) == 18 then --Exit
 			--Do nothing
 			kanaFurniture.OnStopHighlight(pid, Methods.playerSelectedObject[pname])
 			return true
@@ -442,6 +774,12 @@ Methods.OnPlayerCellChange = function(pid)
 	Methods.playerSelectedAlignObject[tes3mp.GetName(pid)] = nil
 end
 
+Methods.OnPlayerDisconnectValidator = function(pid)
+	if playerRealTimeTimers[pid] then
+		quitMove(pid)
+	end
+end
+
 Methods.OnCommand = function(pid)
 	local cell = tes3mp.GetCell(pid)
 	local refIndex = Methods.GetSelectedRefIndex(pid)
@@ -479,6 +817,10 @@ end)
 
 customEventHooks.registerHandler("OnPlayerCellChange", function(eventStatus, pid, previousCellDescription, currentCellDescription)
 	decorateHelp.OnPlayerCellChange(pid)
+end)
+
+customEventHooks.registerValidator("OnPlayerDisconnect", function(eventStatus, pid)
+	decorateHelp.OnPlayerDisconnectValidator(pid)
 end)
 
 return Methods
