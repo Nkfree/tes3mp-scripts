@@ -2,7 +2,8 @@
 -- To be used with kanaFurniture release 5 custom that features minor QoL changes and selected object highlighting
 -- Alter positions of items using a GUI
 -- Added option to align selected object with another
--- Objects can be moved in realtime in different modes that are operated via changes in draw states
+-- Added option to move and rotate objects in real time in different modes
+-- Added check that prevents object from glitching out of cell
 
 --[[ INSTALLATION:
 1) Save this file as "decorateHelp.lua" in server/scripts/custom
@@ -22,6 +23,7 @@ config.ChooseAlignObjectId = 31361
 config.PrintSubModeId = 31362
 
 config.HeightStanding = 125
+config.CellSize = 8192
 
 ------
 
@@ -53,7 +55,7 @@ local playerObjectDistances = {}
 local playerRealTimeFixedStats = {}
 --
 
-local function resendPlaceToAll(refIndex, cell)
+local function resendPlaceToAll(pid, refIndex, cell)
 	local object = kanaFurniture.getObject(refIndex, cell)
 	
 	if not object then
@@ -65,51 +67,46 @@ local function resendPlaceToAll(refIndex, cell)
 	local charge = object.charge or -1
 	local posX, posY, posZ = object.location.posX, object.location.posY, object.location.posZ
 	local rotX, rotY, rotZ = object.location.rotX, object.location.rotY, object.location.rotZ
-	local refIndex = refIndex
 	local scale = object.scale or 1
 	
 	local inventory = object.inventory or nil
 	
 	local splitIndex = refIndex:split("-")
 	
-	for pid, pdata in pairs(Players) do
-		if Players[pid]:IsLoggedIn() then
-			--First, delete the original
-			tes3mp.InitializeEvent(pid)
-			tes3mp.SetEventCell(cell)
-			tes3mp.SetObjectRefNumIndex(0)
-			tes3mp.SetObjectMpNum(splitIndex[2])
-			tes3mp.AddWorldObject() --?
-			tes3mp.SendObjectDelete()
-			
-			--Now remake it
-			tes3mp.InitializeEvent(pid)
-			tes3mp.SetEventCell(cell)
-			tes3mp.SetObjectRefId(refId)
-			tes3mp.SetObjectCount(count)
-			tes3mp.SetObjectCharge(charge)
-			tes3mp.SetObjectPosition(posX, posY, posZ)
-			tes3mp.SetObjectRotation(rotX, rotY, rotZ)
-			tes3mp.SetObjectRefNumIndex(0)
-			tes3mp.SetObjectMpNum(splitIndex[2])
-			tes3mp.SetObjectScale(scale)
-			if inventory then
-				for itemIndex, item in pairs(inventory) do
-					tes3mp.SetContainerItemRefId(item.refId)
-					tes3mp.SetContainerItemCount(item.count)
-					tes3mp.SetContainerItemCharge(item.charge)
+	--First, delete the original
+	tes3mp.InitializeEvent(pid)
+	tes3mp.SetEventCell(cell)
+	tes3mp.SetObjectRefNumIndex(0)
+	tes3mp.SetObjectMpNum(splitIndex[2])
+	tes3mp.AddWorldObject() --?
+	tes3mp.SendObjectDelete(true, false)
+	
+	--Now remake it
+	tes3mp.InitializeEvent(pid)
+	tes3mp.SetEventCell(cell)
+	tes3mp.SetObjectRefId(refId)
+	tes3mp.SetObjectCount(count)
+	tes3mp.SetObjectCharge(charge)
+	tes3mp.SetObjectPosition(posX, posY, posZ)
+	tes3mp.SetObjectRotation(rotX, rotY, rotZ)
+	tes3mp.SetObjectRefNumIndex(0)
+	tes3mp.SetObjectMpNum(splitIndex[2])
+	tes3mp.SetObjectScale(scale)
+	if inventory then
+		for _, item in pairs(inventory) do
+			tes3mp.SetContainerItemRefId(item.refId)
+			tes3mp.SetContainerItemCount(item.count)
+			tes3mp.SetContainerItemCharge(item.charge)
 
-					tes3mp.AddContainerItem()
-				end
-			end
-			
-			tes3mp.AddWorldObject()
-			tes3mp.SendObjectPlace()
-			tes3mp.SendObjectScale()
-			if inventory then
-				tes3mp.SendContainer()
-			end
+			tes3mp.AddContainerItem()
 		end
+	end
+	
+	tes3mp.AddWorldObject()
+	tes3mp.SendObjectPlace(true, false)
+	tes3mp.SendObjectScale(true, false)
+	if inventory then
+		tes3mp.SendContainer(true, false)
 	end
 	
 	-- Make sure to save a scale packet if this object has a non-default scale.
@@ -208,7 +205,7 @@ local function onAlign(pid, data)
 		selectedObject.location.posZ = alignToPosZ
 	end
 	
-	resendPlaceToAll(selectedRefIndex, cell)
+	resendPlaceToAll(pid, selectedRefIndex, cell)
 end
 
 local function onAlignUndo(pid)
@@ -221,7 +218,7 @@ local function onAlignUndo(pid)
 		selectedObject.location.posY = playerActionHistory[pid][selectedRefIndex].location.posY
 		selectedObject.location.posZ = playerActionHistory[pid][selectedRefIndex].location.posZ
 
-		resendPlaceToAll(selectedRefIndex, cell)
+		resendPlaceToAll(pid, selectedRefIndex, cell)
 		playerActionHistory[pid][selectedRefIndex] = nil
 	end
 end
@@ -252,7 +249,11 @@ local function getObjectNewLocationFloored(pid)
 		rotZ = rotAngleZ
 	}
 
-	return location
+	if Methods.IsNewLocationWithinCell(pid, location) then
+		return location
+	end
+
+	return nil
 end
 
 local function resetSubMode(pid)
@@ -311,12 +312,13 @@ local function printSubModeInfo(pid)
 	return tes3mp.MessageBox(pid, config.PrintSubModeId, message)
 end
 
-local function resetFixedStats(pid)
+function Methods.ResetFixedStats(pid)
 	playerRealTimeFixedStats[pid].posX = false
 	playerRealTimeFixedStats[pid].posY = false
 	playerRealTimeFixedStats[pid].posZ = false
-	playerRealTimeFixedStats[pid].rotZ = false
-	playerRealTimeFixedStats[pid].rotX = false
+	playerRealTimeFixedStats[pid].rotX = true
+	playerRealTimeFixedStats[pid].rotY = true
+	playerRealTimeFixedStats[pid].rotZ = true
 end
 
 local function toggleFixedStats(pid)
@@ -374,6 +376,18 @@ local function toggleFixedStats(pid)
 	printSubModeInfo(pid)
 end
 
+local function markObjectDistance(pid, object)
+	local objX = math.floor(object.location.posX + 0.5)
+	local objY = math.floor(object.location.posY + 0.5)
+	local plX = math.floor(tes3mp.GetPosX(pid) + 0.5)
+	local plY = math.floor(tes3mp.GetPosY(pid) + 0.5)
+
+	local offsetX = math.abs(objX - plX)
+	local offsetY = math.abs(objY - plY)
+
+	playerObjectDistances[pid] = math.max(offsetX, offsetY)
+end
+
 local function beginMove(pid, uniqueIndex)
 	local cell = tes3mp.GetCell(pid)
 	local object = kanaFurniture.getObject(Methods.GetSelectedRefIndex(pid), cell)
@@ -381,15 +395,7 @@ local function beginMove(pid, uniqueIndex)
 	if object then
 		printSubModeInfo(pid)
 
-		local objX = math.floor(object.location.posX + 0.5)
-		local objY = math.floor(object.location.posY + 0.5)
-		local plX = math.floor(tes3mp.GetPosX(pid) + 0.5)
-		local plY = math.floor(tes3mp.GetPosY(pid) + 0.5)
-
-		local offsetX = math.abs(objX - plX)
-		local offsetY = math.abs(objY - plY)
-
-		playerObjectDistances[pid] = math.max(offsetX, offsetY)
+		markObjectDistance(pid, object)
 		playerRealTimeTimers[pid] = tes3mp.CreateTimerEx("RT_UpdateObjectLocation", time.seconds(0.01), "is", pid, uniqueIndex)
 		tes3mp.StartTimer(playerRealTimeTimers[pid])
 	else
@@ -400,19 +406,25 @@ end
 local function quitMove(pid)
 	tes3mp.StopTimer(playerRealTimeTimers[pid])
 	playerRealTimeTimers[pid] = nil
-	playerObjectDistances[pid] = nil
+	playerObjectDistances[pid] = 0
 	resetSubMode(pid)
 	resetSubSubMode(pid)
-	kanaFurniture.OnStopHighlight(pid, Methods.GetSelectedRefIndex(pid))
 	return -- Methods.OnCommand(pid)
 end
 
 function RT_UpdateObjectLocation(pid, uniqueIndex)
 	local cell = tes3mp.GetCell(pid)
 
+	-- tes3mp.SendMessage(pid, "RT_UPDATE fired in cell: " .. cell .. "\n", false)
+
 	local object = kanaFurniture.getObject(Methods.GetSelectedRefIndex(pid), cell)
 
-	local newLocation = getObjectNewLocationFloored(pid, object)
+	if not object then
+		quitMove(pid)
+		kanaFurniture.OnStopHighlight(pid, Methods.GetSelectedRefIndex(pid))
+	end
+
+	local newLocation = getObjectNewLocationFloored(pid)
 
 	if tes3mp.GetDrawState(pid) ~= playerLastDrawState[pid] then
 		local previousDrawState = playerLastDrawState[pid]
@@ -429,7 +441,7 @@ function RT_UpdateObjectLocation(pid, uniqueIndex)
 		elseif previousDrawState == 2 and playerLastDrawState[pid] == 0 then
 			incrementSubSubMode(pid)
 		end
-
+		markObjectDistance(pid, object)
 		printSubModeInfo(pid)
 	end
 
@@ -439,13 +451,15 @@ function RT_UpdateObjectLocation(pid, uniqueIndex)
 		--Mark the time of player entering sneak state
 		if not playerRealTimeSneakTimestamps[pid] then playerRealTimeSneakTimestamps[pid] = os.time() end
 
-		if playerRealTimeSneakTimestamps[pid] + 1.5 <= os.time() then
+		--Place the object after 1 second of holding sneak state
+		if playerRealTimeSneakTimestamps[pid] + 1 <= os.time() then
 			playerRealTimeSneakTimestamps[pid] = nil
-			resetFixedStats(pid)
+			Methods.ResetFixedStats(pid)
+			kanaFurniture.OnStopHighlight(pid, Methods.GetSelectedRefIndex(pid))
 			return quitMove(pid)
 		end
 	else
-		if playerRealTimeSneakTimestamps[pid] and playerRealTimeSneakTimestamps[pid] + 0.1 >= os.time() then
+		if playerRealTimeSneakTimestamps[pid] and playerRealTimeSneakTimestamps[pid] + 0.2 >= os.time() then
 			toggleFixedStats(pid)
 		end
 		playerRealTimeSneakTimestamps[pid] = nil
@@ -456,7 +470,7 @@ function RT_UpdateObjectLocation(pid, uniqueIndex)
 	local objZ = math.floor(object.location.posZ + 0.5)
 
 	--Do not update object that didn't move by a single unit
-	if objX == newLocation.posX and objY == newLocation.posY and objZ == newLocation.posZ then
+	if not newLocation or ( objX == newLocation.posX and objY == newLocation.posY and objZ == newLocation.posZ ) then
 		return tes3mp.RestartTimer(playerRealTimeTimers[pid], time.seconds(0.01))
 	end
 
@@ -517,12 +531,7 @@ function RT_UpdateObjectLocation(pid, uniqueIndex)
 		end
 	end
 
---[[ 	object.location.posX = newLocation.posX
-	object.location.posY = newLocation.posY
-	object.location.posZ = newLocation.posZ
-	object.location.rotZ = newLocation.rotZ ]]
-
-	resendPlaceToAll(uniqueIndex, cell)
+	resendPlaceToAll(pid, uniqueIndex, cell)
 	return tes3mp.RestartTimer(playerRealTimeTimers[pid], time.seconds(0.01))
 end
 -----------
@@ -554,6 +563,7 @@ local function onEnterPrompt(pid, data)
 		return false
 	end
 	
+	local previousLocation = {posX = object.location.posX, posY = object.location.posY, posZ = object.location.posZ}
 	local scale = object.scale or 1
 	
 	if mode == "Rotate X" then
@@ -587,7 +597,7 @@ local function onEnterPrompt(pid, data)
 	elseif mode == "Move South" then
 		object.location.posY = object.location.posY - 10
 	elseif mode == "Scale Up" then
-		if scale + 0.1 <= config.ScaleMax then 
+		if scale + 0.1 <= config.ScaleMax then
 			object.scale = scale + 0.1
 		end
 	elseif mode == "Scale Down" then
@@ -607,7 +617,13 @@ local function onEnterPrompt(pid, data)
 		return
 	end
 	
-	resendPlaceToAll(Methods.playerSelectedObject[pname], cell)
+	if Methods.IsNewLocationWithinCell(pid, object.location) then
+		resendPlaceToAll(pid, Methods.playerSelectedObject[pname], cell)
+	else
+		object.location.posX = previousLocation.posX
+		object.location.posY = previousLocation.posY
+		object.location.posZ = previousLocation.posZ
+	end
 end
 
 local function showMainGUI(pid)
@@ -632,15 +648,14 @@ Methods.SetSelectedObject = function(pid, refIndex)
 	setSelectedObject(pid, refIndex)
 end
 
-Methods.OnObjectPlace = function(pid, cellDescription)
-	--Get the last event, which should hopefully be the place packet
-	tes3mp.ReadLastEvent()
-	
+Methods.OnObjectPlace = function(pid, cellDescription, objects)
 	--Get the refIndex of the first item in the object place packet (in theory, there should only by one)
-	local refIndex = tes3mp.getObjectRefNumIndex(0) .. "-" .. tes3mp.getObjectMpNum(0)
-	
-	--Record that item as the last one the player interacted with in this cell
-	setSelectedObject(pid, refIndex)
+	for _, obj in pairs(objects) do
+		local refIndex = obj.uniqueIndex
+		--Record that item as the last one the player interacted with in this cell
+		setSelectedObject(pid, refIndex)
+		break
+	end
 end
 
 Methods.OnGUIAction = function(pid, idGui, data)
@@ -769,7 +784,15 @@ Methods.OnGUIAction = function(pid, idGui, data)
 	end
 end
 
-Methods.OnPlayerCellChange = function(pid)
+Methods.OnPlayerCellChangeValidator = function(pid)
+	if playerRealTimeTimers[pid] then
+		quitMove(pid)
+	end
+
+	-- tes3mp.SendMessage(pid, "Cell has been changed.\n", false)
+	kanaFurniture.OnStopHighlight(pid, Methods.GetSelectedRefIndex(pid))
+	kanaFurniture.OnStopHighlight(pid, Methods.GetSelectedAlignRefIndex(pid))
+
 	Methods.playerSelectedObject[tes3mp.GetName(pid)] = nil
 	Methods.playerSelectedAlignObject[tes3mp.GetName(pid)] = nil
 end
@@ -780,7 +803,14 @@ Methods.OnPlayerDisconnectValidator = function(pid)
 	end
 end
 
+--Methods.OnObjectCellChange
+
 Methods.OnCommand = function(pid)
+	--Quit real time mode
+	if playerRealTimeTimers[pid] then
+		quitMove(pid)
+	end
+
 	local cell = tes3mp.GetCell(pid)
 	local refIndex = Methods.GetSelectedRefIndex(pid)
 	if refIndex then
@@ -799,6 +829,25 @@ Methods.GetSelectedAlignRefIndex = function(pid)
 	return Methods.playerSelectedAlignObject[pname]
 end
 
+--TODO CELL HEIGHT CHECK
+Methods.IsNewLocationWithinCell = function(pid, location)
+	if tes3mp.IsInExterior(pid) then
+		local exteriorX = tes3mp.GetExteriorX(pid)
+		local exteriorY = tes3mp.GetExteriorY(pid)
+
+		local borderXA = exteriorX * config.CellSize
+		local borderXB = exteriorX * config.CellSize + config.CellSize
+		local borderYA = exteriorY * config.CellSize
+		local borderYB = exteriorY * config.CellSize + config.CellSize
+
+		if location.posX >= borderXA and location.posX <= borderXB and location.posY >= borderYA and location.posY <= borderYB then
+			return true
+		end
+
+		return false
+	end
+end
+
 customCommandHooks.registerCommand("decorator", function(pid, cmd) decorateHelp.OnCommand(pid) end)
 customCommandHooks.registerCommand("decorate", function(pid, cmd) decorateHelp.OnCommand(pid) end)
 customCommandHooks.registerCommand("dh", function(pid, cmd) decorateHelp.OnCommand(pid) end)
@@ -812,11 +861,11 @@ customEventHooks.registerHandler("OnGUIAction", function(eventStatus, pid, idGui
 end)
 
 customEventHooks.registerHandler("OnObjectPlace", function(eventStatus, pid, cellDescription, objects)
-	decorateHelp.OnObjectPlace(pid, cellDescription)
+	decorateHelp.OnObjectPlace(pid, cellDescription, objects)
 end)
 
-customEventHooks.registerHandler("OnPlayerCellChange", function(eventStatus, pid, previousCellDescription, currentCellDescription)
-	decorateHelp.OnPlayerCellChange(pid)
+customEventHooks.registerValidator("OnPlayerCellChange", function(eventStatus, pid, previousCellDescription, currentCellDescription)
+	decorateHelp.OnPlayerCellChangeValidator(pid)
 end)
 
 customEventHooks.registerValidator("OnPlayerDisconnect", function(eventStatus, pid)
