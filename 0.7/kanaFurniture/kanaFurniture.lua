@@ -13,7 +13,7 @@
 ]]
 
 local config = {}
-config.whitelist = false --If true, the player must be given permission to place items in the cell that they're in (set using this script's methods, or editing the world.json). Note that this only prevents placement, players can still move/remove items they've placed in the cell.
+config.whitelist = false --If true, the player must be given permission to place items in the cell that they're in (set using this script's kanaFurniture, or editing the world.json). Note that this only prevents placement, players can still move/remove items they've placed in the cell.
 config.sellbackModifier = 0.75 -- The base cost that an item is multiplied by when selling the items back (0.75 is 75%)
 
 --GUI Ids used for the script's GUIs. Shouldn't have to be edited.
@@ -25,6 +25,7 @@ config.InventoryOptionsGUI = 31367
 config.ViewOptionsGUI = 31368
 
 config.HighlightColorGUI = 31369
+config.InfoMsgGUI = 31370
 
 --Default highlight index, see highlightSpellIds
 config.defaultHighlightIndex = 4
@@ -276,9 +277,7 @@ local furnitureData = {
 decorateHelp = require("custom.decorateHelp")
 tableHelper = require("tableHelper")
 
-local Methods = {}
---Forward declarations:
-local showMainGUI, showBuyGUI, showInventoryGUI, showViewGUI, showInventoryOptionsGUI, showViewOptionsGUI
+local kanaFurniture = {}
 ------------
 local playerBuyOptions = {} --Used to store the lists of items each player is offered so we know what they're trying to buy
 local playerInventoryOptions = {} --
@@ -380,7 +379,7 @@ local function addFurnitureItem(pname, refId, count, save)
 	end
 end
 
-Methods.OnServerPostInit = function()
+kanaFurniture.OnServerPostInit = function()
 	--Create the script's required data if it doesn't exits
 	if WorldInstance.data.customVariables.kanaFurniture == nil then
 		WorldInstance.data.customVariables.kanaFurniture = {}
@@ -399,15 +398,15 @@ Methods.OnServerPostInit = function()
 	end
 	local permissions = getPermissionsTable()
 		
-	for cell, v in pairs(permissions) do
+	for cell, _ in pairs(permissions) do
 		local newNames = {}
 		
-		for pname, v in pairs(permissions[cell]) do
+		for pname, _ in pairs(permissions[cell]) do
 			table.insert(newNames, string.lower(pname))
 		end
 		
 		permissions[cell] = {}
-		for k, newName in pairs(newNames) do
+		for _, newName in pairs(newNames) do
 			permissions[cell][newName] = true
 		end
 	end
@@ -427,7 +426,7 @@ end
 --  OBJECT HIGHLIGHTING
 -- ===========
 
-function Methods.OnPlayerAuthentifiedHandler(pid)
+function kanaFurniture.OnPlayerAuthentifiedHandler(pid)
 	local worldCvars = WorldInstance.data.customVariables
 	local shouldSave = false
 	
@@ -448,9 +447,9 @@ function Methods.OnPlayerAuthentifiedHandler(pid)
 	end
 end
 
-function Methods.OnPlayerDisconnectValidator(pid)
+function kanaFurniture.OnPlayerDisconnectValidator(pid)
 	for uniqueIndex, _ in pairs(highlightTimers[pid]) do
-		Methods.OnStopHighlight(pid, uniqueIndex)
+		kanaFurniture.OnStopHighlight(pid, uniqueIndex)
 	end
 end
 
@@ -490,16 +489,16 @@ function HighlightObject(pid, cellDescription, uniqueIndex)
 	tes3mp.RestartTimer(highlightTimers[pid][uniqueIndex], 500)
 end
 
-function Methods.OnStartHighlight(pid, cellDescription, uniqueIndex)
+function kanaFurniture.OnStartHighlight(pid, cellDescription, uniqueIndex)
 	local timer = createHighlightTimer(pid, cellDescription, uniqueIndex)
 	tes3mp.StartTimer(timer)
 end
 
-function Methods.OnStopHighlight(pid, uniqueIndex)
+function kanaFurniture.OnStopHighlight(pid, uniqueIndex)
 	destroyTimer(pid, uniqueIndex)
 end
 
-function Methods.showHighlightColorGUI(pid)
+function kanaFurniture.showHighlightColorGUI(pid)
 	local message = "Proceed to choose your desired highlight color."
 	local buttons = ""
 	
@@ -513,7 +512,7 @@ function Methods.showHighlightColorGUI(pid)
 end
 
 local function onMainHighlightColor(pid)
-	Methods.showHighlightColorGUI(pid)
+	kanaFurniture.showHighlightColorGUI(pid)
 end
 
 local function onHighlightOptionSelect(pid, loc)
@@ -533,7 +532,7 @@ local function getName(pid)
 	return string.lower(Players[pid].accountName)
 end
 
-Methods.getObject = function(refIndex, cell)
+kanaFurniture.getObject = function(refIndex, cell)
 	if refIndex == nil then
 		return false
 	end
@@ -543,7 +542,7 @@ Methods.getObject = function(refIndex, cell)
 		logicHandler.LoadCell(cell)
 	end ]]
 
-	if LoadedCells[cell]:ContainsObject(refIndex)  then 
+	if LoadedCells[cell]:ContainsObject(refIndex)  then
 		return LoadedCells[cell].data.objectData[refIndex]
 	else
 		return false
@@ -721,11 +720,11 @@ local function addFurnitureData(data)
 	end
 end
 
-Methods.AddFurnitureData = function(data)
+kanaFurniture.AddFurnitureData = function(data)
 	addFurnitureData(data)
 end
 --NOTE: Both AddPermission and RemovePermission use pname, rather than pid
-Methods.AddPermission = function(pname, cell)
+kanaFurniture.AddPermission = function(pname, cell)
 	local perms = getPermissionsTable()
 	
 	if not perms[cell] then
@@ -736,7 +735,7 @@ Methods.AddPermission = function(pname, cell)
 	WorldInstance:QuicksaveToDrive()
 end
 
-Methods.RemovePermission = function(pname, cell)
+kanaFurniture.RemovePermission = function(pname, cell)
 	local perms = getPermissionsTable()
 	
 	if not perms[cell] then
@@ -748,14 +747,14 @@ Methods.RemovePermission = function(pname, cell)
 	WorldInstance:QuicksaveToDrive()
 end
 
-Methods.RemoveAllPermissions = function(cell)
+kanaFurniture.RemoveAllPermissions = function(cell)
 	local perms = getPermissionsTable()
 	
 	perms[cell] = nil
 	WorldInstance:QuicksaveToDrive()
 end
 
-Methods.RemoveAllPlayerFurnitureInCell = function(pname, cell, returnToOwner)
+kanaFurniture.RemoveAllPlayerFurnitureInCell = function(pname, cell, returnToOwner)
 	local placed = getPlacedTable()
 	local cInfo = placed[cell] or {}
 	
@@ -771,7 +770,7 @@ Methods.RemoveAllPlayerFurnitureInCell = function(pname, cell, returnToOwner)
 	WorldInstance:QuicksaveToDrive()
 end
 
-Methods.RemoveAllFurnitureInCell = function(cell, returnToOwner)
+kanaFurniture.RemoveAllFurnitureInCell = function(cell, returnToOwner)
 	local placed = getPlacedTable()
 	local cInfo = placed[cell] or {}
 	
@@ -786,7 +785,7 @@ Methods.RemoveAllFurnitureInCell = function(cell, returnToOwner)
 end
 
 --Change the ownership of the specified furniture object (via refIndex) to another character's (playerToName). If playerCurrentName is false, the owner will be changed to the new one regardless of who owned it first.
-Methods.TransferOwnership = function(refIndex, cell, playerCurrentName, playerToName, save)
+kanaFurniture.TransferOwnership = function(refIndex, cell, playerCurrentName, playerToName, save)
 	local placed = getPlacedTable()
 	
 	if placed[cell] and placed[cell][refIndex] and (placed[cell][refIndex].owner == playerCurrentName or not playerCurrentName) then
@@ -804,7 +803,7 @@ Methods.TransferOwnership = function(refIndex, cell, playerCurrentName, playerTo
 end
 
 --Same as TransferOwnership, but for all items in a given cell
-Methods.TransferAllOwnership = function(cell, playerCurrentName, playerToName, save)
+kanaFurniture.TransferAllOwnership = function(cell, playerCurrentName, playerToName, save)
 	local placed = getPlacedTable()
 	
 	if not placed[cell] then
@@ -827,16 +826,15 @@ Methods.TransferAllOwnership = function(cell, playerCurrentName, playerToName, s
 	end
 end
 
---New Release 2 Methods:
-Methods.GetSellBackPrice = function(value)
+kanaFurniture.GetSellBackPrice = function(value)
 	return getSellValue(value)
 end
 
-Methods.GetFurnitureDataByRefId = function(refId)
+kanaFurniture.GetFurnitureDataByRefId = function(refId)
 	return getFurnitureData(refId)
 end
 
-Methods.GetPlacedInCell = function(cell)
+kanaFurniture.GetPlacedInCell = function(cell)
 	return getPlaced(cell)
 end
 
@@ -846,11 +844,11 @@ end
 -- ====
 
 -- VIEW (OPTIONS)
-showViewOptionsGUI = function(pid, loc)
+kanaFurniture.showViewOptionsGUI = function(pid, loc)
 	local message = ""
 	local cell = tes3mp.GetCell(pid)
 	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
-	local selected = Methods.getObject(refIndex, cell)
+	local selected = kanaFurniture.getObject(refIndex, cell)
 	local fdata = getFurnitureData(selected.refId) or nil
 
 	if not fdata then
@@ -866,10 +864,10 @@ local function onViewOptionDecorate(pid)
 	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
 	local cell = tes3mp.GetCell(pid)
 	
-	if Methods.getObject(refIndex, cell) then
+	if kanaFurniture.getObject(refIndex, cell) then
 		decorateHelp.OnCommand(pid)
 	else
-		tes3mp.MessageBox(pid, -1, "The object seems to have been removed.")
+		tes3mp.MessageBox(pid, config.InfoMsgGUI, "The object seems to have been removed.")
 	end
 end
 
@@ -877,25 +875,25 @@ local function onViewOptionPutAway(pid)
 	local pname = getName(pid)
 	local cell = tes3mp.GetCell(pid)
 	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
-	local selected = Methods.getObject(refIndex, cell)
+	local selected = kanaFurniture.getObject(refIndex, cell)
 	
-	if Methods.getObject(refIndex, cell) then
+	if kanaFurniture.getObject(refIndex, cell) then
 		removeFurniture(refIndex, cell)
 		removePlaced(refIndex, cell, true)
 		
 		addFurnitureItem(pname, selected.refId, 1, true)
-		tes3mp.MessageBox(pid, -1, getFurnitureData(selected.refId).name .. " has been added to your furniture inventory.")
+		tes3mp.MessageBox(pid, config.InfoMsgGUI, getFurnitureData(selected.refId).name .. " has been added to your furniture inventory.")
 	else
-		tes3mp.MessageBox(pid, -1, "The object seems to have been removed.")
+		tes3mp.MessageBox(pid, config.InfoMsgGUI, "The object seems to have been removed.")
 	end
 end
 
 local function onViewOptionSell(pid)
 	local cell = tes3mp.GetCell(pid)
 	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
-	local selected = Methods.getObject(refIndex, cell)
+	local selected = kanaFurniture.getObject(refIndex, cell)
 
-	if Methods.getObject(refIndex, cell) then
+	if kanaFurniture.getObject(refIndex, cell) then
 		local saleGold = getSellValue(getFurnitureData(selected.refId).price)
 		
 		--Add gold to inventory
@@ -906,14 +904,14 @@ local function onViewOptionSell(pid)
 		removePlaced(refIndex, cell, true)
 		
 		--Inform the player
-		tes3mp.MessageBox(pid, -1, saleGold .. " Gold has been added to your inventory and the furniture has been removed from the cell.")
+		tes3mp.MessageBox(pid, config.InfoMsgGUI, saleGold .. " Gold has been added to your inventory and the furniture has been removed from the cell.")
 	else
-		tes3mp.MessageBox(pid, -1, "The object seems to have been removed.")
+		tes3mp.MessageBox(pid, config.InfoMsgGUI, "The object seems to have been removed.")
 	end
 end
 
 -- VIEW (MAIN)
-showViewGUI = function(pid)
+kanaFurniture.showViewGUI = function(pid)
 	local pname = getName(pid)
 	local cell = tes3mp.GetCell(pid)
 	local options = getPlayerPlacedInCell(pname, cell)
@@ -924,7 +922,7 @@ showViewGUI = function(pid)
 	if options and #options > 0 then
 		for i = 1, #options do
 			--Make sure the object still exists, and get its data
-			local object = Methods.getObject(options[i], cell)
+			local object = kanaFurniture.getObject(options[i], cell)
 			
 			if object then
 				local furnData = getFurnitureData(object.refId)
@@ -941,20 +939,20 @@ showViewGUI = function(pid)
 	
 	playerViewOptions[pname] = newOptions
 	tes3mp.ListBox(pid, config.ViewGUI, "Select a piece of furniture you've placed in this cell. Note: The contents of containers will be lost if removed.", list)
-	--getPlayerPlacedInCell(pname, cell)
 end
 
 local function onViewChoice(pid, loc)
 	local cell = tes3mp.GetCell(pid)
 	local choice = playerViewOptions[getName(pid)][loc]
 	decorateHelp.SetSelectedObject(pid, choice.refIndex)
-	Methods.OnStartHighlight(pid, cell, decorateHelp.GetSelectedRefIndex(pid))
+	decorateHelp.ResetFixedStats(pid)
+	kanaFurniture.OnStartHighlight(pid, cell, decorateHelp.GetSelectedRefIndex(pid))
 	
-	showViewOptionsGUI(pid, loc)
+	kanaFurniture.showViewOptionsGUI(pid, loc)
 end
 
 -- INVENTORY (OPTIONS)
-showInventoryOptionsGUI = function(pid, loc)
+kanaFurniture.showInventoryOptionsGUI = function(pid, loc)
 	local message = ""
 	local choice = playerInventoryOptions[getName(pid)][loc]
 	local fdata = getFurnitureData(choice.refId)
@@ -973,7 +971,7 @@ local function onInventoryOptionPlace(pid)
 	--First check the player is allowed to place items where they are currently
 	if config.whitelist and not hasPlacePermission(pname, curCell) then
 		--Player isn't allowed
-		tes3mp.MessageBox(pid, -1, "You don't have permission to place furniture here.")
+		tes3mp.MessageBox(pid, config.InfoMsgGUI, "You don't have permission to place furniture here.")
 		return false
 	end
 	
@@ -1003,11 +1001,11 @@ local function onInventoryOptionSell(pid)
 	addFurnitureItem(pname, choice.refId, -1, true)
 	
 	--Inform the player
-	tes3mp.MessageBox(pid, -1, saleGold .. " Gold has been added to your inventory.")
+	tes3mp.MessageBox(pid, config.InfoMsgGUI, saleGold .. " Gold has been added to your inventory.")
 end
 
 -- INVENTORY (MAIN)
-showInventoryGUI = function(pid)
+kanaFurniture.showInventoryGUI = function(pid)
 	local options = getSortedPlayerFurnitureInventory(pid)
 	local list = "* CLOSE *\n"
 	
@@ -1023,11 +1021,11 @@ showInventoryGUI = function(pid)
 end
 
 local function onInventoryChoice(pid, loc)
-	showInventoryOptionsGUI(pid, loc)
+	kanaFurniture.showInventoryOptionsGUI(pid, loc)
 end
 
 -- BUY (MAIN)
-showBuyGUI = function(pid)
+kanaFurniture.showBuyGUI = function(pid)
 	local options = getAvailableFurnitureStock(pid)
 	local list = "* CLOSE *\n"
 	
@@ -1047,37 +1045,37 @@ local function onBuyChoice(pid, loc)
 	local choice = playerBuyOptions[getName(pid)][loc]
 	
 	if pgold < choice.price then
-		tes3mp.MessageBox(pid, -1, "You can't afford to buy a " .. choice.name .. ".")
+		tes3mp.MessageBox(pid, config.InfoMsgGUI, "You can't afford to buy a " .. choice.name .. ".")
 		return false
 	end
 	
 	addGold(pid, -choice.price)
 	addFurnitureItem(getName(pid), choice.refId, 1, true)
 	
-	tes3mp.MessageBox(pid, -1, "A " .. choice.name .. " has been added to your furniture inventory.")
-	return showInventoryGUI(pid)
+	tes3mp.MessageBox(pid, config.InfoMsgGUI, "A " .. choice.name .. " has been added to your furniture inventory.")
+	return kanaFurniture.showBuyGUI(pid)
 end
 
 -- MAIN
-showMainGUI = function(pid)
+kanaFurniture.showMainGUI = function(pid)
 	local message = "Welcome to the furniture menu. Use 'Buy' to purchase furniture for your furniture inventory, 'Inventory' to view the furniture items you own, 'View' to display a list of all the furniture that you own in the cell you're currently in.\n\nNote: The current version of tes3mp doesn't really like when lots of items are added to a cell, so try to restrain yourself from complete home renovations."
 	tes3mp.CustomMessageBox(pid, config.MainGUI, message, "Buy;Inventory;View;Highlight color;Exit")
 end
 
 local function onMainBuy(pid)
-	showBuyGUI(pid)
+	kanaFurniture.showBuyGUI(pid)
 end
 
 local function onMainInventory(pid)
-	showInventoryGUI(pid)
+	kanaFurniture.showInventoryGUI(pid)
 end
 
 local function onMainView(pid)
-	showViewGUI(pid)
+	kanaFurniture.showViewGUI(pid)
 end
 
 -- GENERAL
-Methods.OnGUIAction = function(pid, idGui, data)
+kanaFurniture.OnGUIAction = function(pid, idGui, data)
 	
 	if idGui == config.MainGUI then -- Main
 		if tonumber(data) == 0 then --Buy
@@ -1099,7 +1097,7 @@ Methods.OnGUIAction = function(pid, idGui, data)
 	elseif idGui == config.BuyGUI then -- Buy
 		if tonumber(data) == 0 or tonumber(data) == 18446744073709551615 then --Close/Nothing Selected
 			--Do nothing
-			showMainGUI(pid)
+			kanaFurniture.showMainGUI(pid)
 			return true
 		else
 			onBuyChoice(pid, tonumber(data))
@@ -1108,7 +1106,7 @@ Methods.OnGUIAction = function(pid, idGui, data)
 	elseif idGui == config.InventoryGUI then --Inventory main
 		if tonumber(data) == 0 or tonumber(data) == 18446744073709551615 then --Close/Nothing Selected
 			--Do nothing
-			showMainGUI(pid)
+			kanaFurniture.showMainGUI(pid)
 			return true
 		else
 			onInventoryChoice(pid, tonumber(data))
@@ -1123,16 +1121,16 @@ Methods.OnGUIAction = function(pid, idGui, data)
 			return true
 		else --Close
 			--Do nothing
-			showMainGUI(pid)
+			kanaFurniture.showMainGUI(pid)
 			return true
 		end
 	elseif idGui == config.ViewGUI then --View
 		if tonumber(data) == 0 or tonumber(data) == 18446744073709551615 then --Close/Nothing Selected
 			--Do nothing
-			showMainGUI(pid)
+			kanaFurniture.showMainGUI(pid)
 			return true
 		else
-			Methods.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
+			kanaFurniture.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			onViewChoice(pid, tonumber(data))
 			return true
 		end
@@ -1141,21 +1139,21 @@ Methods.OnGUIAction = function(pid, idGui, data)
 			onViewOptionDecorate(pid)
 			return true
 		elseif tonumber(data) == 1 then --Put away
-			Methods.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
+			kanaFurniture.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			onViewOptionPutAway(pid)
 			return true
 		elseif tonumber(data) == 2 then --Sell
-			Methods.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
+			kanaFurniture.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			onViewOptionSell(pid)
 			return true
 		elseif tonumber(data) == 3 then --Back
-			Methods.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
+			kanaFurniture.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			onMainView(pid)
 			return true
 		else --Close
 			--Do nothing
-			Methods.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
-			showMainGUI(pid)
+			kanaFurniture.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
+			kanaFurniture.showMainGUI(pid)
 			return true
 		end
 	elseif idGui == config.HighlightColorGUI then
@@ -1163,47 +1161,47 @@ Methods.OnGUIAction = function(pid, idGui, data)
 			onHighlightOptionSelect(pid, tonumber(data)+1) --Add 1 to match the table indexes
 			return true
 		elseif tonumber(data) == 6 then --Close
-			Methods.OnCommand(pid)
+			kanaFurniture.OnCommand(pid)
 			return true
 		end
 	end
 end
 
-Methods.OnCommand = function(pid)
-	showMainGUI(pid)
+kanaFurniture.OnCommand = function(pid)
+	kanaFurniture.showMainGUI(pid)
 end
 
-Methods.OnView = function(pid)
+kanaFurniture.OnView = function(pid)
 	onMainView(pid)
 end
 
-Methods.PlacedInCell = function(pname, cell)
+kanaFurniture.PlacedInCell = function(pname, cell)
 	return getPlayerPlacedInCell(pname, cell)
 end
 
-Methods.FurnitureData = function(refIndex)
+kanaFurniture.FurnitureData = function(refIndex)
 	return getFurnitureData(refIndex)
 end
 
-customCommandHooks.registerCommand("furniture", Methods.OnCommand)
-customCommandHooks.registerCommand("furn", Methods.OnCommand)
+customCommandHooks.registerCommand("furniture", kanaFurniture.OnCommand)
+customCommandHooks.registerCommand("furn", kanaFurniture.OnCommand)
 
 customEventHooks.registerHandler("OnGUIAction", function(eventStatus, pid, idGui, data)
-	if Methods.OnGUIAction(pid, idGui, data) then
+	if kanaFurniture.OnGUIAction(pid, idGui, data) then
 		return
 	end
 end)
 
 customEventHooks.registerHandler("OnServerPostInit", function(eventStatus)
-	Methods.OnServerPostInit()
+	kanaFurniture.OnServerPostInit()
 end)
 
 customEventHooks.registerHandler("OnPlayerAuthentified", function(eventStatus, pid)
-	Methods.OnPlayerAuthentifiedHandler(pid)
+	kanaFurniture.OnPlayerAuthentifiedHandler(pid)
 end)
 
 customEventHooks.registerValidator("OnPlayerDisconnect", function(eventStatus, pid)
-	Methods.OnPlayerDisconnectValidator(pid)
+	kanaFurniture.OnPlayerDisconnectValidator(pid)
 end)
 
-return Methods
+return kanaFurniture
