@@ -846,6 +846,7 @@ Methods.IsNewLocationWithinCell = function(pid, location)
 
 		return false
 	end
+        return true
 end
 
 customCommandHooks.registerCommand("decorator", function(pid, cmd) decorateHelp.OnCommand(pid) end)
