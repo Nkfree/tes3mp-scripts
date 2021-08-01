@@ -1,13 +1,14 @@
 -- kanaFurniture - Release 5 custom - For tes3mp v0.7-alpha
 -- REQUIRES: decorateHelp (https://github.com/Nkfree/tes3mp-scripts/blob/master/0.7/decorateHelp.lua)
+-- REQUIRES: dimensions (https://github.com/Nkfree/tes3mp-scripts/blob/master/0.7/dimensions.lua)
 -- Purchase and place an assortment of furniture
 -- Highlights selected object and adds minor tweaks
--- Added option to align selected object with another
+-- Uses new module 'dimensions' to determine where to place the object if it contains corresponding refId entry
 
 -- NOTE FOR SCRIPTS: plName requires the name to be in all LOWERCASE
 
 --[[ INSTALLATION:
-1) shouldSave this file as "kanaFurniture.lua" in server/scripts/custom
+1) Save this file as "kanaFurniture.lua" in server/scripts/custom
 2) Add [ kanaFurniture = require("custom.kanaFurniture") ] to the top of customScripts.lua
 
 ]]
@@ -275,6 +276,7 @@ local furnitureData = {
 ------------
 decorateHelp = require("custom.decorateHelp")
 tableHelper = require("tableHelper")
+dimensions = require("custom.dimensions")
 
 local kanaFurniture = {}
 ------------
