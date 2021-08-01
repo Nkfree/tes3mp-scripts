@@ -4,10 +4,10 @@
 -- Highlights selected object and adds minor tweaks
 -- Added option to align selected object with another
 
--- NOTE FOR SCRIPTS: pname requires the name to be in all LOWERCASE
+-- NOTE FOR SCRIPTS: plName requires the name to be in all LOWERCASE
 
 --[[ INSTALLATION:
-1) Save this file as "kanaFurniture.lua" in server/scripts/custom
+1) shouldSave this file as "kanaFurniture.lua" in server/scripts/custom
 2) Add [ kanaFurniture = require("custom.kanaFurniture") ] to the top of customScripts.lua
 
 ]]
@@ -23,7 +23,6 @@ config.InventoryGUI = 31365
 config.ViewGUI = 31366
 config.InventoryOptionsGUI = 31367
 config.ViewOptionsGUI = 31368
-
 config.HighlightColorGUI = 31369
 config.InfoMsgGUI = 31370
 
@@ -250,7 +249,7 @@ local furnitureData = {
 {name = "Banner (Ritual)", refId = "furn_c_t_ritual_01", price = 100},
 {name = "Banner (Shadow)", refId = "furn_c_t_shadow_01", price = 100},
 {name = "Banner (Steed)", refId = "furn_c_t_steed_01", price = 100},
-{name = "Banner (Thief)", refId = "furn_c_t_thief_01", price = 100},
+{name = "Banner (Thief)", refId = "furn_c_t_theif_01", price = 100},
 {name = "Banner (Tower)", refId = "furn_c_t_tower_01", price = 100},
 {name = "Banner (Warrior)", refId = "furn_c_t_warrior_01", price = 100},
 {name = "Banner (Wizard)", refId = "furn_c_t_wizard_01", price = 100},
@@ -282,9 +281,9 @@ local kanaFurniture = {}
 local playerBuyOptions = {} --Used to store the lists of items each player is offered so we know what they're trying to buy
 local playerInventoryOptions = {} --
 local playerInventoryChoice = {}
-local playerViewOptions = {} -- [pname = [index = [refIndex = x, refId = y] ]
-
-local highlightColors = {
+local playerViewOptions = {} -- [plName = [index = [uniqueIndex = x, refId = y] ]
+--Highlight colors to choose from
+local highlightColorChoices = {
 	"White",
 	"Ice Blue",
 	"Yellow",
@@ -326,56 +325,65 @@ local function getPlacedTable()
 	return WorldInstance.data.customVariables.kanaFurniture.placed
 end
 
-local function addPlaced(refIndex, cell, pname, refId, save)
+local function getPlaced(cellDescription)
+	return getPlacedTable()[cellDescription]
+end
+
+--[[ local function addPlacedEntry(uniqueIndex, cellDescription, plName, refId, shouldSave)
 	local placed = getPlacedTable()
-	
-	if not placed[cell] then
-		placed[cell] = {}
+
+	if not placed[cellDescription] then
+		placed[cellDescription] = {}
 	end
-	
-	placed[cell][refIndex] = {owner = pname, refId = refId}
-	
-	if save then
+
+	placed[cellDescription][uniqueIndex] = {owner = plName, refId = refId}
+
+	if shouldSave then
 		WorldInstance:QuicksaveToDrive()
 	end
+end ]]
+
+local function addPlacedEntry(uniqueIndex, cellDescription, plName, refId)
+	local placed = getPlacedTable()
+
+	if not placed[cellDescription] then placed[cellDescription] = {} end
+	if not placed[cellDescription][plName] then placed[cellDescription][plName] = {} end
+
+	table.insert(placed[cellDescription][plName], {uniqueIndex = uniqueIndex, refId = refId})
 end
 
-local function removePlaced(refIndex, cell, save)
-	local placed = getPlacedTable()
-	
-	placed[cell][refIndex] = nil
-	
-	if save then
-		WorldInstance:QuicksaveToDrive()
+local function removePlacedEntry(uniqueIndex, plName, cellDescription)
+	local placed = getPlaced(cellDescription)
+
+	for i=1, #placed[plName] do
+		if placed[plName][i].uniqueIndex == uniqueIndex then
+			placed[plName][i] = nil
+			break
+		end
 	end
 end
 
-local function getPlaced(cell)
-	local placed = getPlacedTable()
-	
-	if placed[cell] then
-		return placed[cell]
-	else
-		return false
-	end
-end
-
-local function addFurnitureItem(pname, refId, count, save)
+local function addInventoryFurniture(plName, refId)
 	local fInventories = getFurnitureInventoryTable()
-	
-	if fInventories[pname] == nil then
-		fInventories[pname] = {}
+
+	if fInventories[plName] == nil then
+		fInventories[plName] = {}
 	end
-	
-	fInventories[pname][refId] = (fInventories[pname][refId] or 0) + (count or 1)
-	
-	--Remove the entry if the count is 0 or less (so we can use this function to remove items, too!)
-	if fInventories[pname][refId] <= 0 then
-		fInventories[pname][refId] = nil
+
+	fInventories[plName][refId] = (fInventories[plName][refId] or 0) + 1
+end
+
+local function removeInventoryFurniture(plName, refId)
+	local fInventories = getFurnitureInventoryTable()
+
+	if fInventories[plName] == nil then
+		fInventories[plName] = {}
 	end
-	
-	if save then
-		WorldInstance:QuicksaveToDrive()
+
+	fInventories[plName][refId] = (fInventories[plName][refId] or 0) - 1
+
+	if fInventories[plName][refId] <= 0 then
+		fInventories[plName][refId] = nil
 	end
 end
 
@@ -383,42 +391,65 @@ kanaFurniture.OnServerPostInit = function()
 	--Create the script's required data if it doesn't exits
 	if WorldInstance.data.customVariables.kanaFurniture == nil then
 		WorldInstance.data.customVariables.kanaFurniture = {}
-		WorldInstance.data.customVariables.kanaFurniture.placed = {}
-		WorldInstance.data.customVariables.kanaFurniture.permissions = {}
-		WorldInstance.data.customVariables.kanaFurniture.inventories = {}
-		WorldInstance:QuicksaveToDrive()
 	end
-	
+
+	if WorldInstance.data.customVariables.kanaFurniture.placed == nil then
+		WorldInstance.data.customVariables.kanaFurniture.placed = {}
+	end
+
+	if WorldInstance.data.customVariables.kanaFurniture.permissions == nil then
+		WorldInstance.data.customVariables.kanaFurniture.permissions = {}
+	end
+
+	if WorldInstance.data.customVariables.kanaFurniture.inventories == nil then
+		WorldInstance.data.customVariables.kanaFurniture.inventories = {}
+	end
+
+	if WorldInstance.data.customVariables.kanaFurniture.highlightChoices == nil then
+		WorldInstance.data.customVariables.kanaFurniture.highlightChoices = {}
+	end
+
 	--Slight Hack for updating pnames to their new values. In release 1, the script stored player names as their login names, in release 2 it stores them as their all lowercase names.
 	local placed = getPlacedTable()
-	for cell, v in pairs(placed) do
-		for refIndex, v in pairs(placed[cell]) do
-			placed[cell][refIndex].owner = string.lower(placed[cell][refIndex].owner)
+	local updatedPlaced = {}
+	for cellDescription, _ in pairs(placed) do
+		if not updatedPlaced[cellDescription] then updatedPlaced[cellDescription] = {} end
+		for name, data in pairs(placed[cellDescription]) do
+			--If the name has uniqueIndex pattern it's outdated, so update it
+			if name:match("^0%-") then
+				if not updatedPlaced[cellDescription][string.lower(data.owner)] then updatedPlaced[cellDescription][string.lower(data.owner)] = {} end
+				table.insert(updatedPlaced[cellDescription][string.lower(data.owner)], {uniqueIndex = name, refId = data.refId})
+			end
 		end
 	end
+
+	--Actually update the placed table if there are updated entries available
+	if next(updatedPlaced) then
+		WorldInstance.data.customVariables.kanaFurniture.placed = updatedPlaced
+	end
+
 	local permissions = getPermissionsTable()
-		
-	for cell, _ in pairs(permissions) do
+	for cellDescription, _ in pairs(permissions) do
 		local newNames = {}
-		
-		for pname, _ in pairs(permissions[cell]) do
-			table.insert(newNames, string.lower(pname))
+
+		for plName, _ in pairs(permissions[cellDescription]) do
+			table.insert(newNames, string.lower(plName))
 		end
-		
-		permissions[cell] = {}
+
+		permissions[cellDescription] = {}
 		for _, newName in pairs(newNames) do
-			permissions[cell][newName] = true
+			permissions[cellDescription][newName] = true
 		end
 	end
-	
+
 	local inventories = getFurnitureInventoryTable()
 	local newInventories = {}
-	for pname, invData in pairs(inventories) do
-		newInventories[string.lower(pname)] = invData
+	for plName, invData in pairs(inventories) do
+		newInventories[string.lower(plName)] = invData
 	end
-	
+
 	WorldInstance.data.customVariables.kanaFurniture.inventories = newInventories
-	
+
 	WorldInstance:QuicksaveToDrive()
 end
 
@@ -426,42 +457,15 @@ end
 --  OBJECT HIGHLIGHTING
 -- ===========
 
-function kanaFurniture.OnPlayerAuthentifiedHandler(pid)
-	local worldCvars = WorldInstance.data.customVariables
-	local shouldSave = false
-	
-	if highlightTimers[pid] == nil then highlightTimers[pid] = {} end
-	
-	if worldCvars.kanaFurniture.highlightChoices == nil then
-		worldCvars.kanaFurniture.highlightChoices = {}
-		shouldSave = true
-	end
-	
-	if worldCvars.kanaFurniture.highlightChoices[pid] == nil then
-		worldCvars.kanaFurniture.highlightChoices[pid] = highlightSpellIds[config.defaultHighlightIndex]
-		shouldSave = true
-	end
-	
-	if shouldSave then
-		WorldInstance:QuicksaveToDrive()
-	end
-end
-
-function kanaFurniture.OnPlayerDisconnectValidator(pid)
-	for uniqueIndex, _ in pairs(highlightTimers[pid]) do
-		kanaFurniture.OnStopHighlight(pid, uniqueIndex)
-	end
-end
-
 local function createHighlightTimer(pid, cellDescription, uniqueIndex)
-	if not highlightTimers[pid][uniqueIndex] then
+	if not highlightTimers[pid][uniqueIndex] and not (tableHelper.getCount(highlightTimers[pid]) > 2) then
 		highlightTimers[pid][uniqueIndex] = tes3mp.CreateTimerEx("HighlightObject", 0, "iss", pid, cellDescription, uniqueIndex)
 	end
-	
+
 	return highlightTimers[pid][uniqueIndex]
 end
 
-local function destroyTimer(pid, uniqueIndex)
+local function destroyHighlightTimer(pid, uniqueIndex)
 	if highlightTimers[pid][uniqueIndex] then
 		tes3mp.StopTimer(highlightTimers[pid][uniqueIndex])
 		highlightTimers[pid][uniqueIndex] = nil
@@ -473,51 +477,70 @@ function HighlightObject(pid, cellDescription, uniqueIndex)
 
 	--Resolve different color for selected align object
 	if uniqueIndex == decorateHelp.GetSelectedAlignRefIndex(pid) then
-		for index, _ in ipairs(highlightColors) do --Find first different color and use that to highlight the align object
+		for index, _ in ipairs(highlightColorChoices) do --Find first different color and use that to highlight the align object
 			if highlightSpellIds[index] ~= choice then
 				choice = highlightSpellIds[index]
 				break
-			end 
+			end
 		end
 	end
 
 	logicHandler.RunConsoleCommandOnObject(pid, 'ExplodeSpell ' .. choice.id, cellDescription, uniqueIndex, false)
 	logicHandler.RunConsoleCommandOnObject(pid, 'StopSound ' .. choice.soundId, cellDescription, uniqueIndex, false)
-	
-	--tes3mp.SendMessage(pid, "Highlighting " .. uniqueIndex .. " with " .. string.gsub(config.spellId, '"+', "") .. "\n", false)
-	
+
 	tes3mp.RestartTimer(highlightTimers[pid][uniqueIndex], 500)
 end
 
-function kanaFurniture.OnStartHighlight(pid, cellDescription, uniqueIndex)
-	local timer = createHighlightTimer(pid, cellDescription, uniqueIndex)
-	tes3mp.StartTimer(timer)
-end
-
-function kanaFurniture.OnStopHighlight(pid, uniqueIndex)
-	destroyTimer(pid, uniqueIndex)
-end
-
-function kanaFurniture.showHighlightColorGUI(pid)
+local function onMainHighlightColor(pid)
 	local message = "Proceed to choose your desired highlight color."
 	local buttons = ""
-	
-	for _, text in ipairs(highlightColors) do
+
+	for _, text in ipairs(highlightColorChoices) do
 		buttons = buttons .. text .. ";"
 	end
-	
-	buttons = buttons .. "Close"
-	
-	tes3mp.CustomMessageBox(pid, config.HighlightColorGUI, message, buttons)
-end
 
-local function onMainHighlightColor(pid)
-	kanaFurniture.showHighlightColorGUI(pid)
+	buttons = buttons .. "Close"
+
+	tes3mp.CustomMessageBox(pid, config.HighlightColorGUI, message, buttons)
 end
 
 local function onHighlightOptionSelect(pid, loc)
 	WorldInstance.data.customVariables.kanaFurniture.highlightChoices[pid] = highlightSpellIds[loc]
 	WorldInstance:QuicksaveToDrive()
+end
+
+function kanaFurniture.OnStartHighlight(pid, cellDescription, uniqueIndex)
+	local timer = createHighlightTimer(pid, cellDescription, uniqueIndex)
+
+	if timer then
+		tes3mp.StartTimer(timer)
+	else
+		tes3mp.SendMessage(pid, "Highlight timer could not be created. Contact server administrator.")
+	end
+end
+
+function kanaFurniture.OnStopHighlight(pid, uniqueIndex)
+	destroyHighlightTimer(pid, uniqueIndex)
+end
+
+function kanaFurniture.OnPlayerAuthentifiedHandler(pid)
+	local shouldSave = false
+	if highlightTimers[pid] == nil then highlightTimers[pid] = {} end
+
+	if WorldInstance.data.customVariables.kanaFurniture.highlightChoices[pid] == nil then
+		WorldInstance.data.customVariables.kanaFurniture.highlightChoices[pid] = highlightSpellIds[config.defaultHighlightIndex]
+		shouldSave = true
+	end
+
+	if shouldSave then
+		WorldInstance:QuicksaveToDrive()
+	end
+end
+
+function kanaFurniture.OnPlayerDisconnectValidator(pid)
+	for uniqueIndex, _ in pairs(highlightTimers[pid]) do
+		kanaFurniture.OnStopHighlight(pid, uniqueIndex)
+	end
 end
 
 -------------------------
@@ -527,275 +550,251 @@ local function getSellValue(baseValue)
 end
 
 local function getName(pid)
-	--return Players[pid].data.login.name
 	--Release 2 change: Now uses all lowercase name for storage
 	return string.lower(Players[pid].accountName)
 end
 
-kanaFurniture.getObject = function(refIndex, cell)
-	if refIndex == nil then
-		return false
+kanaFurniture.getObject = function(uniqueIndex, cellDescription)
+	if LoadedCells[cellDescription]:ContainsObject(uniqueIndex)  then
+		return LoadedCells[cellDescription].data.objectData[uniqueIndex]
 	end
-	
---[[ 	if not LoadedCells[cell] then
-		--TODO: Should ideally be temporary
-		logicHandler.LoadCell(cell)
-	end ]]
 
-	if LoadedCells[cell]:ContainsObject(refIndex)  then
-		return LoadedCells[cell].data.objectData[refIndex]
-	else
-		return false
-	end	
+	return nil
 end
 
 --Returns the amount of gold in a player's inventory
 local function getPlayerGold(pid)
 	local goldLoc = inventoryHelper.getItemIndex(Players[pid].data.inventory, "gold_001", -1)
-	
+
 	if goldLoc then
 		return Players[pid].data.inventory[goldLoc].count
-	else
-		return 0
 	end
+
+	return 0
 end
 
 local function addGold(pid, amount)
-	--TODO: Add functionality to add gold to offline player's inventories, too
-	local goldLoc = inventoryHelper.getItemIndex(Players[pid].data.inventory, "gold_001", -1)
-	
-	if goldLoc then
-		Players[pid].data.inventory[goldLoc].count = Players[pid].data.inventory[goldLoc].count + amount
-	else
-		table.insert(Players[pid].data.inventory, {refId = "gold_001", count = amount, charge = -1})
-	end
-	
+	local gold = {refId = "gold_001", count = amount, charge = -1, enchantmentCharge = -1, soul = ""}
+
+	inventoryHelper.addItem(Players[pid].data.inventory, gold.refId, gold.count, gold.charge, gold.enchantmentCharge, gold.soul)
+	Players[pid]:LoadItemChanges({gold}, enumerations.inventory.ADD)
+
 	Players[pid]:QuicksaveToDrive()
-	Players[pid]:LoadInventory()
-	Players[pid]:LoadEquipment()
+end
+
+local function removeGold(pid, amount)
+	local gold = {refId = "gold_001", count = amount, charge = -1, enchantmentCharge = -1, soul = ""}
+
+	inventoryHelper.removeClosestItem(Players[pid].data.inventory, gold.refId, gold.count, gold.charge, gold.enchantmentCharge, gold.soul)
+	Players[pid]:LoadItemChanges({gold}, enumerations.inventory.REMOVE)
+
+	Players[pid]:QuicksaveToDrive()
 end
 
 local function getFurnitureData(refId)
 	local location = tableHelper.getIndexByNestedKeyValue(furnitureData, "refId", refId)
+
 	if location then
 		return furnitureData[location], location
-	else
-		return false
 	end
+
+	return nil
 end
 
-local function hasPlacePermission(pname, cell)
+local function hasPlacePermission(plName, cellDescription)
 	local perms = getPermissionsTable()
-	
+
 	if not config.whitelist then
 		return true
 	end
-	
-	if perms[cell] then
-		if perms[cell]["all"] or perms[cell][pname] then
-			return true
-		else
-			return false
-		end
-	else
-		--There's not even any data for that cell
-		return false
+
+	if perms[cellDescription] and (perms[cellDescription]["all"] or perms[cellDescription][plName]) then
+		return true
 	end
+
+	return false
 end
 
 local function getPlayerFurnitureInventory(pid)
-	local invlist = getFurnitureInventoryTable()
-	local pname = getName(pid)
-	
-	if invlist[pname] == nil then
-		invlist[pname] = {}
+	local inventories = getFurnitureInventoryTable()
+	local plName = getName(pid)
+
+	if not inventories[plName] then
+		inventories[plName] = {}
 		WorldInstance:QuicksaveToDrive()
 	end
-	
-	return invlist[pname]
+
+	return inventories[plName]
 end
 
 local function getSortedPlayerFurnitureInventory(pid)
-	local inv = getPlayerFurnitureInventory(pid)
+	local inventory = getPlayerFurnitureInventory(pid)
 	local sorted = {}
-	
-	for refId, amount in pairs(inv) do
+
+	for refId, amount in pairs(inventory) do
 		local name = getFurnitureData(refId).name
 		table.insert(sorted, {name = name, count = amount, refId = refId})
 	end
-	
+
+
+	table.sort(sorted, function(a, b)
+		return a.name < b.name
+	end)
+
 	return sorted
 end
 
-local function placeFurniture(refId, loc, cell)
-	local useTempLoad = false
-	
+local function placeFurniture(refId, loc, cellDescription)
 	local location = {
 		posX = loc.x, posY = loc.y, posZ = loc.z,
 		rotX = 0, rotY = 0, rotZ = 0
 	}
-	
-	if not LoadedCells[cell] then
-		logicHandler.LoadCell(cell)
-		useTempLoad = true
+
+	if dimensions[refId] then
+		location.posZ = location.posZ + ( dimensions[refId].z / 2 - 1 )
 	end
 
-	local uniqueIndex = logicHandler.CreateObjectAtLocation(cell, location, refId, "place")
-	
-	if useTempLoad then
-		logicHandler.UnloadCell(cell)
-	end
-	
+	local uniqueIndex = logicHandler.CreateObjectAtLocation(cellDescription, location, refId, "place")
+
 	return uniqueIndex
 end
 
-local function removeFurniture(refIndex, cell)
-	--If for some reason the cell isn't loaded, load it. Causes a bit of spam in the server log, but that can't really be helped.
+local function deleteFurnitureObject(uniqueIndex, cellDescription)
+	--If for some reason the cellDescription isn't loaded, load it. Causes a bit of spam in the server log, but that can't really be helped.
 	local useTempLoad = false
-	
-	if LoadedCells[cell] == nil then
-		logicHandler.LoadCell(cell)
+
+	if LoadedCells[cellDescription] == nil then
+		logicHandler.LoadCell(cellDescription)
 		useTempLoad = true
 	end
-	
-	if LoadedCells[cell]:ContainsObject(refIndex) and not tableHelper.containsValue(LoadedCells[cell].data.packets.delete, refIndex) then --Shouldn't ever have a delete packet, but it's worth checking anyway
+
+	if LoadedCells[cellDescription]:ContainsObject(uniqueIndex) and not tableHelper.containsValue(LoadedCells[cellDescription].data.packets.delete, uniqueIndex) then --Shouldn't ever have a delete packet, but it's worth checking anyway
 		--Delete the object for all the players currently online
-		logicHandler.DeleteObjectForEveryone(cell, refIndex)
-		
-		LoadedCells[cell]:DeleteObjectData(refIndex)
-		LoadedCells[cell]:QuicksaveToDrive()
+		logicHandler.DeleteObjectForEveryone(cellDescription, uniqueIndex)
+
+		LoadedCells[cellDescription]:DeleteObjectData(uniqueIndex)
+		LoadedCells[cellDescription]:QuicksaveToDrive()
 		--Removing the object from the placed list will be done elsewhere
 	end
-	
+
 	if useTempLoad then
-		logicHandler.UnloadCell(cell)
+		logicHandler.UnloadCell(cellDescription)
 	end
 end
 
 local function getAvailableFurnitureStock(pid)
 	--In the future this can be used to customise what items are available for a particular player, like making certain items only available for things like their race, class, level, their factions, or the quests they've completed. For now, however, everything in furnitureData is available :P
-	
+
 	local options = {}
-	
+
 	for i = 1, #furnitureData do
 		table.insert(options, furnitureData[i])
 	end
-	
+
 	return options
 end
 
---If the player has placed items in the cell, returns an indexed table containing all the refIndexes of furniture that they have placed.
-local function getPlayerPlacedInCell(pname, cell)
-	local cellPlaced = getPlaced(cell)
-	
-	if not cellPlaced then
-		-- Nobody has placed items in this cell
-		return false
-	end
-	
+--If the player has placed items in the cell return a sorted array containing all the refIds of furniture that they have placed.
+local function getSortedPlayerPlacedInCell(plName, cellDescription)
+	local cellPlaced = getPlaced(cellDescription)
 	local list = {}
-	for refIndex, data in pairs(cellPlaced) do
-		if data.owner == pname then
-			table.insert(list, refIndex)
+
+	--Check whether there has been any furniture placed by player
+	if cellPlaced and cellPlaced[plName] then
+
+		--Sort only if there are multiple items
+		if #cellPlaced[plName] > 1 then
+			table.sort(cellPlaced[plName], function(a, b)
+				local aFurnData = getFurnitureData(a.refId)
+				local bFurnData = getFurnitureData(b.refId)
+				return aFurnData.name < bFurnData.name
+			end)
+		end
+
+		for _, data in ipairs(cellPlaced[plName]) do
+			table.insert(list, data.uniqueIndex)
+		end
+
+		if #list > 0 then
+			return list
 		end
 	end
-	
-	if #list > 0 then
-		return list
-	else
-		--The player hasn't placed any items in this cell
-		return false
-	end
+
+	return nil
 end
 
-local function addFurnitureData(data)
-	--Check the furniture doesn't already have an entry, if it does, overwrite it
-	--TODO: Should probably check that the data is valid
-	local fdata, loc = getFurnitureData(data.refId)
-	
-	if fdata then
-		furnitureData[loc] = data
-	else
-		table.insert(furnitureData, data)
-	end
-end
-
-kanaFurniture.AddFurnitureData = function(data)
-	addFurnitureData(data)
-end
---NOTE: Both AddPermission and RemovePermission use pname, rather than pid
-kanaFurniture.AddPermission = function(pname, cell)
+-- UNUSED FUNCTIONS --
+--NOTE: Both AddPermission and RemovePermission use plName, rather than pid
+kanaFurniture.AddPermission = function(plName, cellDescription)
 	local perms = getPermissionsTable()
-	
-	if not perms[cell] then
-		perms[cell] = {}
+
+	if not perms[cellDescription] then
+		perms[cellDescription] = {}
 	end
-	
-	perms[cell][pname] = true
+
+	perms[cellDescription][plName] = true
+
 	WorldInstance:QuicksaveToDrive()
 end
 
-kanaFurniture.RemovePermission = function(pname, cell)
+kanaFurniture.RemovePermission = function(plName, cellDescription)
 	local perms = getPermissionsTable()
-	
-	if not perms[cell] then
+
+	if not perms[cellDescription] then
 		return
 	end
-	
-	perms[cell][pname] = nil
-	
+
+	perms[cellDescription][plName] = false
+
 	WorldInstance:QuicksaveToDrive()
 end
 
-kanaFurniture.RemoveAllPermissions = function(cell)
+kanaFurniture.RemoveAllPermissions = function(cellDescription)
 	local perms = getPermissionsTable()
-	
-	perms[cell] = nil
+
+	perms[cellDescription] = false
+
 	WorldInstance:QuicksaveToDrive()
 end
 
-kanaFurniture.RemoveAllPlayerFurnitureInCell = function(pname, cell, returnToOwner)
-	local placed = getPlacedTable()
-	local cInfo = placed[cell] or {}
-	
-	for refIndex, info in pairs(cInfo) do
-		if info.owner == pname then
+kanaFurniture.RemoveAllPlayerFurnitureInCell = function(plName, cellDescription, returnToOwner)
+	local placed = getPlaced(cellDescription)
+
+	if placed and placed[plName] then
+		for _, data in pairs(placed[plName]) do
 			if returnToOwner then
-				addFurnitureItem(info.owner, info.refId, 1, false)
+				addInventoryFurniture(plName, data.refId)
 			end
-			removeFurniture(refIndex, cell)
-			removePlaced(refIndex, cell, false)
+			deleteFurnitureObject(data.uniqueIndex, cellDescription)
+			removePlacedEntry(data.uniqueIndex, plName, cellDescription)
 		end
 	end
+end
+
+kanaFurniture.RemoveAllFurnitureInCell = function(cellDescription, returnToOwner)
+	local placed = getPlaced(cellDescription)
+
+	if placed then
+		for plName, _ in pairs(placed) do
+			kanaFurniture.RemoveAllPlayerFurnitureInCell(plName, cellDescription, returnToOwner)
+		end
+	end
+
 	WorldInstance:QuicksaveToDrive()
 end
 
-kanaFurniture.RemoveAllFurnitureInCell = function(cell, returnToOwner)
+--Change the ownership of the specified furniture object (via uniqueIndex) to another character's (playerToName). If playerCurrentName is false, the owner will be changed to the new one regardless of who owned it first.
+kanaFurniture.TransferOwnership = function(uniqueIndex, cellDescription, playerCurrentName, playerToName, shouldSave)
 	local placed = getPlacedTable()
-	local cInfo = placed[cell] or {}
-	
-	for refIndex, info in pairs(cInfo) do
-		if returnToOwner then
-			addFurnitureItem(info.owner, info.refId, 1, false)
-		end
-		removeFurniture(refIndex, cell)
-		removePlaced(refIndex, cell, false)
-	end
-	WorldInstance:QuicksaveToDrive()
-end
 
---Change the ownership of the specified furniture object (via refIndex) to another character's (playerToName). If playerCurrentName is false, the owner will be changed to the new one regardless of who owned it first.
-kanaFurniture.TransferOwnership = function(refIndex, cell, playerCurrentName, playerToName, save)
-	local placed = getPlacedTable()
-	
-	if placed[cell] and placed[cell][refIndex] and (placed[cell][refIndex].owner == playerCurrentName or not playerCurrentName) then
-		placed[cell][refIndex].owner = playerToName
+	if placed[cellDescription] and placed[cellDescription][uniqueIndex] and (placed[cellDescription][uniqueIndex].owner == playerCurrentName or not playerCurrentName) then
+		placed[cellDescription][uniqueIndex].owner = playerToName
 	end
-	
-	if save then
+
+	if shouldSave then
 		WorldInstance:QuicksaveToDrive()
 	end
-	
+
 	--Unset the current player's selected item, just in case they had that furniture as their selected item
 	if playerCurrentName and logicHandler.IsPlayerNameLoggedIn(playerCurrentName) then
 		decorateHelp.SetSelectedObject(logicHandler.GetPlayerByName(playerCurrentName).pid, "")
@@ -803,23 +802,23 @@ kanaFurniture.TransferOwnership = function(refIndex, cell, playerCurrentName, pl
 end
 
 --Same as TransferOwnership, but for all items in a given cell
-kanaFurniture.TransferAllOwnership = function(cell, playerCurrentName, playerToName, save)
+kanaFurniture.TransferAllOwnership = function(cellDescription, playerCurrentName, playerToName, shouldSave)
 	local placed = getPlacedTable()
-	
-	if not placed[cell] then
+
+	if not placed[cellDescription] then
 		return false
 	end
-	
-	for refIndex, info in pairs(placed[cell]) do
-		if not playerCurrentName or info.owner == playerCurrentName then
-			placed[cell][refIndex].owner = playerToName
+
+	for uniqueIndex, _ in pairs(placed[cellDescription]) do
+		if not playerCurrentName or placed[cellDescription][uniqueIndex].owner == playerCurrentName then
+			placed[cellDescription][uniqueIndex].owner = playerToName
 		end
 	end
-	
-	if save then
+
+	if shouldSave then
 		WorldInstance:QuicksaveToDrive()
 	end
-	
+
 	--Unset the current player's selected item, just in case they had any of the furniture as their selected item
 	if playerCurrentName and logicHandler.IsPlayerNameLoggedIn(playerCurrentName) then
 		decorateHelp.SetSelectedObject(logicHandler.GetPlayerByName(playerCurrentName).pid, "")
@@ -834,8 +833,8 @@ kanaFurniture.GetFurnitureDataByRefId = function(refId)
 	return getFurnitureData(refId)
 end
 
-kanaFurniture.GetPlacedInCell = function(cell)
-	return getPlaced(cell)
+kanaFurniture.GetPlacedInCell = function(cellDescription)
+	return getPlaced(cellDescription)
 end
 
 
@@ -844,27 +843,27 @@ end
 -- ====
 
 -- VIEW (OPTIONS)
-kanaFurniture.showViewOptionsGUI = function(pid, loc)
+kanaFurniture.showViewOptionsGUI = function(pid)
 	local message = ""
-	local cell = tes3mp.GetCell(pid)
-	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
-	local selected = kanaFurniture.getObject(refIndex, cell)
-	local fdata = getFurnitureData(selected.refId) or nil
+	local cellDescription = tes3mp.GetCell(pid)
+	local uniqueIndex = decorateHelp.GetSelectedRefIndex(pid)
+	local selected = kanaFurniture.getObject(uniqueIndex, cellDescription)
+	local fdata = getFurnitureData(selected.refId)
 
 	if not fdata then
 		return tes3mp.SendMessage(pid, "Furniture data for the selected object could not be retrieved.\n", false)
 	end
-	
-	message = message .. "Item Name: " .. fdata.name .. " (RefIndex: " .. refIndex .. "). Price: " .. fdata.price .. " (Sell price: " .. getSellValue(fdata.price) .. ")"
-	
+
+	message = message .. "Item Name: " .. fdata.name .. " (uniqueIndex: " .. uniqueIndex .. "). Price: " .. fdata.price .. " (Sell price: " .. getSellValue(fdata.price) .. ")"
+
 	tes3mp.CustomMessageBox(pid, config.ViewOptionsGUI, message, "Decorate helper;Put Away;Sell;Back;Close")
 end
 
 local function onViewOptionDecorate(pid)
-	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
-	local cell = tes3mp.GetCell(pid)
-	
-	if kanaFurniture.getObject(refIndex, cell) then
+	local uniqueIndex = decorateHelp.GetSelectedRefIndex(pid)
+	local cellDescription = tes3mp.GetCell(pid)
+
+	if kanaFurniture.getObject(uniqueIndex, cellDescription) then
 		decorateHelp.OnCommand(pid)
 	else
 		tes3mp.MessageBox(pid, config.InfoMsgGUI, "The object seems to have been removed.")
@@ -872,16 +871,16 @@ local function onViewOptionDecorate(pid)
 end
 
 local function onViewOptionPutAway(pid)
-	local pname = getName(pid)
-	local cell = tes3mp.GetCell(pid)
-	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
-	local selected = kanaFurniture.getObject(refIndex, cell)
-	
-	if kanaFurniture.getObject(refIndex, cell) then
-		removeFurniture(refIndex, cell)
-		removePlaced(refIndex, cell, true)
-		
-		addFurnitureItem(pname, selected.refId, 1, true)
+	local plName = getName(pid)
+	local cellDescription = tes3mp.GetCell(pid)
+	local uniqueIndex = decorateHelp.GetSelectedRefIndex(pid)
+	local selected = kanaFurniture.getObject(uniqueIndex, cellDescription)
+
+	if kanaFurniture.getObject(uniqueIndex, cellDescription) then
+		deleteFurnitureObject(uniqueIndex, cellDescription)
+		removePlacedEntry(uniqueIndex, plName, cellDescription)
+		addInventoryFurniture(plName, selected.refId)
+
 		tes3mp.MessageBox(pid, config.InfoMsgGUI, getFurnitureData(selected.refId).name .. " has been added to your furniture inventory.")
 	else
 		tes3mp.MessageBox(pid, config.InfoMsgGUI, "The object seems to have been removed.")
@@ -889,21 +888,19 @@ local function onViewOptionPutAway(pid)
 end
 
 local function onViewOptionSell(pid)
-	local cell = tes3mp.GetCell(pid)
-	local refIndex = decorateHelp.GetSelectedRefIndex(pid)
-	local selected = kanaFurniture.getObject(refIndex, cell)
+	local cellDescription = tes3mp.GetCell(pid)
+	local uniqueIndex = decorateHelp.GetSelectedRefIndex(pid)
+	local selected = kanaFurniture.getObject(uniqueIndex, cellDescription)
 
-	if kanaFurniture.getObject(refIndex, cell) then
+	if kanaFurniture.getObject(uniqueIndex, cellDescription) then
 		local saleGold = getSellValue(getFurnitureData(selected.refId).price)
-		
-		--Add gold to inventory
+		local plName = getName(pid)
+
 		addGold(pid, saleGold)
-		
-		--Remove the item from the cell
-		removeFurniture(refIndex, cell)
-		removePlaced(refIndex, cell, true)
-		
-		--Inform the player
+
+		deleteFurnitureObject(uniqueIndex, cellDescription)
+		removePlacedEntry(uniqueIndex, plName, cellDescription)
+
 		tes3mp.MessageBox(pid, config.InfoMsgGUI, saleGold .. " Gold has been added to your inventory and the furniture has been removed from the cell.")
 	else
 		tes3mp.MessageBox(pid, config.InfoMsgGUI, "The object seems to have been removed.")
@@ -912,43 +909,59 @@ end
 
 -- VIEW (MAIN)
 kanaFurniture.showViewGUI = function(pid)
-	local pname = getName(pid)
-	local cell = tes3mp.GetCell(pid)
-	local options = getPlayerPlacedInCell(pname, cell)
-	
+	local plName = getName(pid)
+	local cellDescription = tes3mp.GetCell(pid)
+	local options = getSortedPlayerPlacedInCell(plName, cellDescription)
 	local list = "* CLOSE *\n"
 	local newOptions = {}
-	
-	if options and #options > 0 then
+
+	if options then
 		for i = 1, #options do
 			--Make sure the object still exists, and get its data
-			local object = kanaFurniture.getObject(options[i], cell)
-			
+			local object = kanaFurniture.getObject(options[i], cellDescription)
+
 			if object then
 				local furnData = getFurnitureData(object.refId)
-				
+
 				list = list .. furnData.name .. " (at " .. math.floor(object.location.posX + 0.5) .. ", "  ..  math.floor(object.location.posY + 0.5) .. ", " .. math.floor(object.location.posZ + 0.5) .. ")"
-				if not(i == #options) then
+				if i ~= #options then
 					list = list .. "\n"
 				end
-				
-				table.insert(newOptions, {refIndex = options[i], refId = object.refId})
+
+				table.insert(newOptions, {uniqueIndex = options[i], refId = object.refId})
 			end
 		end
 	end
-	
-	playerViewOptions[pname] = newOptions
+
+	playerViewOptions[plName] = newOptions
 	tes3mp.ListBox(pid, config.ViewGUI, "Select a piece of furniture you've placed in this cell. Note: The contents of containers will be lost if removed.", list)
 end
 
 local function onViewChoice(pid, loc)
-	local cell = tes3mp.GetCell(pid)
+	--Catch loc being nil when hitting "Close" in empty view gui
+	if not loc then
+		return
+	end
+
+	local cellDescription = tes3mp.GetCell(pid)
 	local choice = playerViewOptions[getName(pid)][loc]
-	decorateHelp.SetSelectedObject(pid, choice.refIndex)
+
+	decorateHelp.SetSelectedObject(pid, choice.uniqueIndex)
 	decorateHelp.ResetFixedStats(pid)
-	kanaFurniture.OnStartHighlight(pid, cell, decorateHelp.GetSelectedRefIndex(pid))
-	
-	kanaFurniture.showViewOptionsGUI(pid, loc)
+
+	kanaFurniture.OnStartHighlight(pid, cellDescription, decorateHelp.GetSelectedRefIndex(pid))
+	kanaFurniture.showViewOptionsGUI(pid)
+end
+
+local function onViewDoneRedirect(pid)
+	local placed = getSortedPlayerPlacedInCell(getName(pid), tes3mp.GetCell(pid)) or {}
+	local placedSize = #placed
+
+	if placedSize > 0 then
+		return kanaFurniture.showViewGUI(pid)
+	end
+
+	return kanaFurniture.showMainGUI(pid)
 end
 
 -- INVENTORY (OPTIONS)
@@ -956,50 +969,52 @@ kanaFurniture.showInventoryOptionsGUI = function(pid, loc)
 	local message = ""
 	local choice = playerInventoryOptions[getName(pid)][loc]
 	local fdata = getFurnitureData(choice.refId)
-	
+
 	message = message .. "Item Name: " .. choice.name .. ". Price: " .. fdata.price .. " (Sell price: " .. getSellValue(fdata.price) .. ")"
-	
+
 	playerInventoryChoice[getName(pid)] = choice
 	tes3mp.CustomMessageBox(pid, config.InventoryOptionsGUI, message, "Place;Sell;Close")
 end
 
 local function onInventoryOptionPlace(pid)
-	local pname = getName(pid)
-	local curCell = tes3mp.GetCell(pid)
-	local choice = playerInventoryChoice[pname]
-	
+	local plName = getName(pid)
+	local cellDescription = tes3mp.GetCell(pid)
+	local choice = playerInventoryChoice[plName]
+
 	--First check the player is allowed to place items where they are currently
-	if config.whitelist and not hasPlacePermission(pname, curCell) then
+	if config.whitelist and not hasPlacePermission(plName, cellDescription) then
 		--Player isn't allowed
 		tes3mp.MessageBox(pid, config.InfoMsgGUI, "You don't have permission to place furniture here.")
 		return false
 	end
-	
+
 	--Remove 1 instance of the item from the player's inventory
-	addFurnitureItem(pname, choice.refId, -1, true)
-	
-	--Place the furniture in the world
-	local pPos = {x = tes3mp.GetPosX(pid), y = tes3mp.GetPosY(pid), z = tes3mp.GetPosZ(pid)}
-	local furnRefIndex = placeFurniture(choice.refId, pPos, curCell)
-	
-	--Update the database of all placed furniture
-	addPlaced(furnRefIndex, curCell, pname, choice.refId, true)
+	removeInventoryFurniture(plName, choice.refId)
+
+	--Place the furniture in the world - take player's position as reference
+	local plPos = {x = tes3mp.GetPosX(pid), y = tes3mp.GetPosY(pid), z = tes3mp.GetPosZ(pid)}
+	local furnRefIndex = placeFurniture(choice.refId, plPos, cellDescription)
+
+	--Add entry in database of placed furniture
+	addPlacedEntry(furnRefIndex, cellDescription, plName, choice.refId)
 	--Set the placed item as the player's active object for decorateHelp to use
 	decorateHelp.SetSelectedObject(pid, furnRefIndex)
+
+	WorldInstance:QuicksaveToDrive()
 end
 
 local function onInventoryOptionSell(pid)
-	local pname = getName(pid)
-	local choice = playerInventoryChoice[pname]
-	
+	local plName = getName(pid)
+	local choice = playerInventoryChoice[plName]
+
 	local saleGold = getSellValue(getFurnitureData(choice.refId).price)
-	
+
 	--Add gold to inventory
 	addGold(pid, saleGold)
-	
+
 	--Remove 1 instance of the item from the player's inventory
-	addFurnitureItem(pname, choice.refId, -1, true)
-	
+	removeInventoryFurniture(plName, choice.refId)
+
 	--Inform the player
 	tes3mp.MessageBox(pid, config.InfoMsgGUI, saleGold .. " Gold has been added to your inventory.")
 end
@@ -1008,14 +1023,14 @@ end
 kanaFurniture.showInventoryGUI = function(pid)
 	local options = getSortedPlayerFurnitureInventory(pid)
 	local list = "* CLOSE *\n"
-	
+
 	for i = 1, #options do
 		list = list .. options[i].name .. " (" .. options[i].count .. ")"
 		if not(i == #options) then
 			list = list .. "\n"
 		end
 	end
-	
+
 	playerInventoryOptions[getName(pid)] = options
 	tes3mp.ListBox(pid, config.InventoryGUI, "Select the piece of furniture from your inventory that you wish to do something with", list)
 end
@@ -1024,41 +1039,52 @@ local function onInventoryChoice(pid, loc)
 	kanaFurniture.showInventoryOptionsGUI(pid, loc)
 end
 
+local function onInventoryDoneRedirect(pid)
+	local inventorySize = #getSortedPlayerFurnitureInventory(pid)
+
+	if inventorySize > 0 then
+		return kanaFurniture.showInventoryGUI(pid)
+	end
+
+	return kanaFurniture.showMainGUI(pid)
+end
+
 -- BUY (MAIN)
 kanaFurniture.showBuyGUI = function(pid)
 	local options = getAvailableFurnitureStock(pid)
 	local list = "* CLOSE *\n"
-	
+
 	for i = 1, #options do
 		list = list .. options[i].name .. " (" .. options[i].price .. " Gold)"
 		if not(i == #options) then
 			list = list .. "\n"
 		end
 	end
-	
+
 	playerBuyOptions[getName(pid)] = options
 	tes3mp.ListBox(pid, config.BuyGUI, "Select an item you wish to buy", list)
 end
 
 local function onBuyChoice(pid, loc)
-	local pgold = getPlayerGold(pid)
-	local choice = playerBuyOptions[getName(pid)][loc]
-	
-	if pgold < choice.price then
+	local gold = getPlayerGold(pid)
+	local plName = getName(pid)
+	local choice = playerBuyOptions[plName][loc]
+
+	if gold < choice.price then
 		tes3mp.MessageBox(pid, config.InfoMsgGUI, "You can't afford to buy a " .. choice.name .. ".")
 		return false
 	end
-	
-	addGold(pid, -choice.price)
-	addFurnitureItem(getName(pid), choice.refId, 1, true)
-	
+
+	removeGold(pid, choice.price)
+	addInventoryFurniture(plName, choice.refId)
+
 	tes3mp.MessageBox(pid, config.InfoMsgGUI, "A " .. choice.name .. " has been added to your furniture inventory.")
 	return kanaFurniture.showBuyGUI(pid)
 end
 
 -- MAIN
 kanaFurniture.showMainGUI = function(pid)
-	local message = "Welcome to the furniture menu. Use 'Buy' to purchase furniture for your furniture inventory, 'Inventory' to view the furniture items you own, 'View' to display a list of all the furniture that you own in the cell you're currently in.\n\nNote: The current version of tes3mp doesn't really like when lots of items are added to a cell, so try to restrain yourself from complete home renovations."
+	local message = "Welcome to the furniture menu. Use 'Buy' to purchase furniture for your furniture inventory, 'Inventory' to view the furniture items you own, 'View' to display a list of all the furniture that you own in the cell you're currently in and 'Highlight color' to pick the desired color of the highlight effect.\n\nNote: The current version of tes3mp doesn't really like when lots of items are added to a cell, so try to restrain yourself from complete home renovations."
 	tes3mp.CustomMessageBox(pid, config.MainGUI, message, "Buy;Inventory;View;Highlight color;Exit")
 end
 
@@ -1076,7 +1102,7 @@ end
 
 -- GENERAL
 kanaFurniture.OnGUIAction = function(pid, idGui, data)
-	
+
 	if idGui == config.MainGUI then -- Main
 		if tonumber(data) == 0 then --Buy
 			onMainBuy(pid)
@@ -1115,9 +1141,11 @@ kanaFurniture.OnGUIAction = function(pid, idGui, data)
 	elseif idGui == config.InventoryOptionsGUI then --Inventory options
 		if tonumber(data) == 0 then --Place
 			onInventoryOptionPlace(pid)
+			kanaFurniture.showViewOptionsGUI(pid)
 			return true
 		elseif tonumber(data) == 1 then --Sell
 			onInventoryOptionSell(pid)
+			onInventoryDoneRedirect(pid)
 			return true
 		else --Close
 			--Do nothing
@@ -1141,10 +1169,12 @@ kanaFurniture.OnGUIAction = function(pid, idGui, data)
 		elseif tonumber(data) == 1 then --Put away
 			kanaFurniture.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			onViewOptionPutAway(pid)
+			onViewDoneRedirect(pid)
 			return true
 		elseif tonumber(data) == 2 then --Sell
 			kanaFurniture.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
 			onViewOptionSell(pid)
+			onViewDoneRedirect(pid)
 			return true
 		elseif tonumber(data) == 3 then --Back
 			kanaFurniture.OnStopHighlight(pid, decorateHelp.GetSelectedRefIndex(pid))
@@ -1159,6 +1189,7 @@ kanaFurniture.OnGUIAction = function(pid, idGui, data)
 	elseif idGui == config.HighlightColorGUI then
 		if tonumber(data) >= 0 and tonumber(data) < 6 then --0: White; 1: Ice Blue; 2: Yellow; 3: Orange; 4: Purple; 5: Violet
 			onHighlightOptionSelect(pid, tonumber(data)+1) --Add 1 to match the table indexes
+			kanaFurniture.OnCommand(pid)
 			return true
 		elseif tonumber(data) == 6 then --Close
 			kanaFurniture.OnCommand(pid)
@@ -1175,12 +1206,12 @@ kanaFurniture.OnView = function(pid)
 	onMainView(pid)
 end
 
-kanaFurniture.PlacedInCell = function(pname, cell)
-	return getPlayerPlacedInCell(pname, cell)
+kanaFurniture.PlacedInCell = function(plName, cellDescription)
+	return getSortedPlayerPlacedInCell(plName, cellDescription)
 end
 
-kanaFurniture.FurnitureData = function(refIndex)
-	return getFurnitureData(refIndex)
+kanaFurniture.FurnitureData = function(uniqueIndex)
+	return getFurnitureData(uniqueIndex)
 end
 
 customCommandHooks.registerCommand("furniture", kanaFurniture.OnCommand)
